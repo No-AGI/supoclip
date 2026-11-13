@@ -1,7 +1,7 @@
 "use client";
 import { useRef } from "react";
 import { useTranslations } from "next-intl";
-import { editDuration, hookRange, timecode, trimHook, uid, type EditDocument } from "@/lib/editor/document";
+import { editDuration, effectiveHookTitle, hookRange, timecode, trimHook, uid, type EditDocument } from "@/lib/editor/document";
 import { prepareTextDraft, type TextDraft } from "@/lib/editor/render";
 import { InlineText } from "./inline-text";
 
@@ -17,17 +17,18 @@ export function HookTrack({ doc, pause, seek, update, onDraft, secondsPerPixel }
   const t = useTranslations("editor");
   const range = hookRange(doc), total = editDuration(doc);
   const drag = useRef<{ document: EditDocument; edge: "start" | "end"; x: number; scale: number; group: string } | null>(null);
+  const title = effectiveHookTitle(doc);
   return <div role="group" aria-label={t("captions.hookTitle")} className="relative h-7">
     <div className="absolute inset-y-0 min-w-2 rounded-md bg-amber-100 dark:bg-amber-950"
       style={{ left: `${range.start / total * 100}%`, width: `${(range.end - range.start) / total * 100}%` }}>
-      <InlineText value={doc.hookTitle ?? ""} label={t("captions.hookTitle")} maxLength={200}
-        buttonLabel={`${t("captions.hookTitle")}: ${doc.hookTitle}`}
-        title={`${doc.hookTitle} · ${timecode(range.start)} – ${timecode(range.end)}`}
+      <InlineText value={title} label={t("captions.hookTitle")} maxLength={200}
+        buttonLabel={`${t("captions.hookTitle")}: ${title}`}
+        title={`${title} · ${timecode(range.start)} – ${timecode(range.end)}`}
         className="absolute inset-0 h-full w-full overflow-hidden rounded-md bg-transparent px-3 text-left text-[11px] leading-7 text-amber-950 hover:bg-amber-200 dark:text-amber-100"
         onBegin={() => { pause(); seek(range.start + Math.min(.3, (range.end - range.start) / 2)); }}
         onDraft={text => onDraft(text === null ? undefined : prepareTextDraft(doc, range.start, "hook", text))}
-        onCommit={hookTitle => update(current => ({ ...current, hookTitle }))}>
-        <span className="block truncate">{doc.hookTitle}</span>
+        onCommit={localizedHookTitle => update(current => ({ ...current, localizedHookTitle }))}>
+        <span className="block truncate">{title}</span>
       </InlineText>
       {(["start", "end"] as const).map(edge => <div key={edge} role="slider" tabIndex={0}
         aria-label={t(edge === "start" ? "timeline.hookStart" : "timeline.hookEnd")}

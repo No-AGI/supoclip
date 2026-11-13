@@ -96,6 +96,16 @@ async def test_section_failure_reuses_paid_stages_and_restores_missing_word_timi
 
 
 @pytest.mark.asyncio
+async def test_gaming_profile_reaches_transcript_analysis(pipeline):
+    p = pipeline
+    p.state["fail_sections"] = False
+
+    await p.run(clip_profile="gaming_stream")
+
+    assert p.analysis.await_args.kwargs["clip_profile"] == "gaming_stream"
+
+
+@pytest.mark.asyncio
 async def test_analysis_failure_does_not_repeat_transcription(pipeline):
     p = pipeline
     answer = p.analysis.return_value
@@ -144,6 +154,16 @@ def test_checkpoint_keys_invalidate_changed_inputs_but_not_styling(pipeline):
     assert key(length="long") != original
     config.transcription_language = "de"
     assert key() != original
+
+
+def test_checkpoint_key_isolated_by_clip_profile(pipeline):
+    config = pipeline.config
+    general = checkpoint_input_key("upload://one.mp4", "upload", "fast", "auto", config)
+    gaming = checkpoint_input_key(
+        "upload://one.mp4", "upload", "fast", "auto", config,
+        clip_profile="gaming_stream",
+    )
+    assert gaming != general
 
 
 @pytest.mark.asyncio

@@ -253,6 +253,17 @@ describe("when the server does not offer workflows", () => {
   }
 });
 
+it("lets highlight requests opt into gaming-stream context selection", async () => {
+  await renderHome();
+  openSettings();
+  fireEvent.click(screen.getByRole("tab", { name: /Clip selection/ }));
+  fireEvent.click(screen.getByRole("radio", { name: "Gaming stream" }));
+  fireEvent.change(urlInput(), { target: { value: LINK } });
+
+  const body = await submit("Generate clips");
+  expect(body).toHaveProperty("clip_profile", "gaming_stream");
+});
+
 describe("before the server says what's offered", () => {
   it("won't send a saved series as plain highlights", async () => {
     storage.set("supoclip.workflow", "series");

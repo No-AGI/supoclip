@@ -224,6 +224,36 @@ async def test_long_transcript_runs_windows_then_reranks(monkeypatch):
     assert scores == sorted(scores, reverse=True)
 
 
+async def test_gaming_stream_profile_reaches_every_window_and_final_rerank(monkeypatch):
+    transcript = _transcript(30 * 60)
+    prompts = []
+    starts = [("00:30", "01:00"), ("10:30", "11:00"), ("20:30", "21:00")]
+
+    async def analyze(prompt):
+        prompts.append(prompt)
+        start, end = starts[len(prompts) - 1]
+        return SimpleNamespace(output=ai.TranscriptAnalysis(
+            most_relevant_segments=[_segment(start, end)], summary="ok", key_topics=[],
+        ))
+
+    agent = SimpleNamespace(run=AsyncMock(side_effect=analyze))
+    rerank_agent = SimpleNamespace(run=AsyncMock(return_value=SimpleNamespace(output=ai.CandidateRanking(
+        ranking=[ai.RankedCandidate(candidate_id=i, score=90 - i) for i in range(3)],
+    ))))
+    monkeypatch.setattr(ai, "get_transcript_agent", lambda clip_length="auto": agent)
+    monkeypatch.setattr(ai, "get_rerank_agent", lambda: rerank_agent)
+
+    await ai.get_most_relevant_parts_by_transcript(
+        transcript, clip_profile="gaming_stream"
+    )
+
+    assert len(prompts) == 3
+    assert all("Preserve the spoken setup before a gameplay reaction" in prompt for prompt in prompts)
+    rerank_prompt = rerank_agent.run.await_args.args[0]
+    assert "Choose varied moments" in rerank_prompt
+    assert "Do not infer visual gameplay events from this transcript" in rerank_prompt
+
+
 async def test_window_failures_are_tolerated_when_another_window_succeeds(monkeypatch):
     transcript = _transcript(30 * 60)
     calls = {"count": 0}

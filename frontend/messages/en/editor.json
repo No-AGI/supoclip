@@ -81,6 +81,8 @@
     "applying": "Applying…",
     "applyAll": "Apply to all clips",
     "hookTitle": "Hook title",
+    "localizedHookTitle": "Localized hook title",
+    "restoreHookTitle": "Restore source title",
     "hookDescription": "Drag the title’s timeline edges to set when it appears. Leave empty to remove it.",
     "hookPlaceholder": "No hook title",
     "transcript": "Transcript",

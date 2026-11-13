@@ -1,12 +1,17 @@
 import { defineConfig } from "@playwright/test";
 
-const databaseUrl =
-  process.env.DATABASE_URL ?? "postgresql://supoclip:supoclip_password@127.0.0.1:5432/supoclip";
-const backendDatabaseUrl =
-  process.env.TEST_DATABASE_URL ??
-  (databaseUrl.startsWith("postgresql+asyncpg://")
-    ? databaseUrl
-    : databaseUrl.replace("postgresql://", "postgresql+asyncpg://"));
+const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+if (!testDatabaseUrl) {
+  throw new Error("Set TEST_DATABASE_URL to a dedicated disposable database before running Playwright");
+}
+const databaseUrl = process.env.TEST_FRONTEND_DATABASE_URL ??
+  testDatabaseUrl.replace(/^postgresql\+asyncpg:\/\//, "postgresql://");
+// The global setup runs in the Playwright process, not in either webServer.
+// Override any application DATABASE_URL before Prisma seeds test data.
+process.env.DATABASE_URL = databaseUrl;
+const backendDatabaseUrl = testDatabaseUrl.startsWith("postgresql+asyncpg://")
+  ? testDatabaseUrl
+  : testDatabaseUrl.replace(/^postgresql:\/\//, "postgresql+asyncpg://");
 const backendAuthSecret = process.env.BACKEND_AUTH_SECRET ?? "supoclip_test_secret";
 const frontendPort = process.env.PLAYWRIGHT_FRONTEND_PORT ?? "3100";
 const backendPort = process.env.PLAYWRIGHT_BACKEND_PORT ?? "8100";
@@ -34,7 +39,7 @@ export default defineConfig({
     {
       command: `cd ../backend && .venv/bin/uvicorn src.main:app --host 127.0.0.1 --port ${backendPort}`,
       url: `${backendBaseUrl}/health`,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       env: {
         ...process.env,
         DATABASE_URL: backendDatabaseUrl,
@@ -50,7 +55,7 @@ export default defineConfig({
     {
       command: `pnpm exec next dev --hostname 127.0.0.1 --port ${frontendPort}`,
       url: frontendBaseUrl,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       env: {
         ...process.env,
         DATABASE_URL: databaseUrl,

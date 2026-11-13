@@ -135,6 +135,12 @@
     "hint": "Ziellänge vor dem Entfernen von Pausen und Füllwörtern. Deine Auswahl wird als Standard gespeichert.",
     "saveError": "Standard konnte nicht gespeichert werden. Dieses Video verwendet trotzdem deine Auswahl."
   },
+  "clipProfile": {
+    "section": "Clip-Auswahl",
+    "general": "Allgemeines Video",
+    "gamingStream": "Gaming-Stream",
+    "hint": "Behält Erklärung und Dialog vor einer Reaktion bei; die Auswahl basiert nur auf dem Transkript."
+  },
   "whatToMake": "Was möchtest du erstellen?",
   "workflows": {
     "highlights": {

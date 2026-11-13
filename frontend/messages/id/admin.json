@@ -190,6 +190,22 @@
     "result": "Hasil",
     "ok": "Menjawab",
     "answeredBy": "Dijawab oleh",
-    "testFailed": "Model tidak dapat diperiksa"
+    "testFailed": "Model tidak dapat diperiksa",
+    "connectionsTitle": "Koneksi LLM khusus",
+    "connectionsDescription": "Tambahkan penyedia yang kompatibel dengan OpenAI. Kunci disimpan dengan aman dan tidak ditampilkan lagi.",
+    "connectionsLoadFailed": "Koneksi tidak dapat dimuat",
+    "connectionSaveFailed": "Koneksi tidak dapat disimpan",
+    "connectionDeleteFailed": "Koneksi tidak dapat dihapus",
+    "connectionTestFailed": "Tes koneksi gagal",
+    "connectionPreset": "Preset penyedia",
+    "connectionCustom": "URL khusus",
+    "connectionName": "Nama koneksi",
+    "connectionBaseUrl": "URL dasar",
+    "connectionModel": "Model",
+    "connectionApiKey": "Kunci API",
+    "connectionSave": "Simpan koneksi",
+    "connectionTest": "Tes koneksi",
+    "connectionTestOk": "Koneksi berhasil dalam {seconds} dtk",
+    "connectionAddFallback": "Tambahkan ke rantai fallback"
   }
 }

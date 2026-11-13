@@ -627,6 +627,14 @@ async def _create_task(request: Request, db: AsyncSession, attempt: SourceAttemp
         workflow_spec = parse_workflow_request(data, clip_length)
     except WorkflowRequestError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.to_detail()) from None
+    clip_profile = data.get("clip_profile", "general")
+    if not isinstance(clip_profile, str) or clip_profile not in {"general", "gaming_stream"}:
+        raise HTTPException(status_code=422, detail="Invalid clip profile")
+    if clip_profile == "gaming_stream" and workflow_spec.workflow != "highlights":
+        raise HTTPException(
+            status_code=422,
+            detail="The gaming stream profile is only available for highlights",
+        )
     if not workflow_spec.legacy and not await workflow_allowed_for(
         db, user_id, workflow_spec.workflow, platform=client_platform(request)
     ):
@@ -649,6 +657,7 @@ async def _create_task(request: Request, db: AsyncSession, attempt: SourceAttemp
         "add_subtitles": add_subtitles,
         "clip_length": clip_length,
         "cleanup_settings": cleanup_settings,
+        **({"clip_profile": clip_profile} if clip_profile != "general" else {}),
     }
     if not workflow_spec.legacy:
         # Plain highlights keep their existing key. The key is a hash, so topic
@@ -756,6 +765,7 @@ async def _create_task(request: Request, db: AsyncSession, attempt: SourceAttemp
                         {
                             "processing_job_id": processing_job_id,
                             "clip_length": clip_length,
+                            **({"clip_profile": clip_profile} if clip_profile != "general" else {}),
                             "enqueued_at": datetime.now(timezone.utc).isoformat(),
                             **({"source_key": source_key} if source_key else {}),
                             **_stream_resolution_metadata(stream_metadata),
@@ -771,7 +781,7 @@ async def _create_task(request: Request, db: AsyncSession, attempt: SourceAttemp
 
                 # Enqueue job for worker
                 queue_adapter = getattr(request.app.state, "queue_adapter", JobQueue)
-                job_id = await queue_adapter.enqueue_processing_job(
+                job_args = (
                     "process_video_task",
                     processing_mode,
                     task_id,
@@ -787,7 +797,11 @@ async def _create_task(request: Request, db: AsyncSession, attempt: SourceAttemp
                     add_subtitles,
                     cleanup_settings,
                     clip_length,
-                    _job_id=processing_job_id,
+                )
+                if clip_profile != "general":
+                    job_args += (clip_profile,)
+                job_id = await queue_adapter.enqueue_processing_job(
+                    *job_args, _job_id=processing_job_id
                 )
 
             except Exception:
@@ -1733,7 +1747,7 @@ async def resume_task(
                     processing_job_id = f"{task_id}:{secrets.token_hex(16)}"
                     metadata["processing_job_id"] = processing_job_id
                     await _save_task_source_metadata(task_id, metadata, db=db)
-                    job_id = await JobQueue.enqueue_processing_job(
+                    job_args = (
                         "process_video_task",
                         processing_mode,
                         task_id,
@@ -1749,7 +1763,12 @@ async def resume_task(
                         add_subtitles,
                         cleanup_settings,
                         normalize_clip_length(metadata.get("clip_length")),
-                        _job_id=processing_job_id,
+                    )
+                    clip_profile = metadata.get("clip_profile", "general")
+                    if clip_profile == "gaming_stream":
+                        job_args += (clip_profile,)
+                    job_id = await JobQueue.enqueue_processing_job(
+                        *job_args, _job_id=processing_job_id
                     )
                 except Exception:
                     await task_service.task_repo.update_task_status(

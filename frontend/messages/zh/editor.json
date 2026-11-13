@@ -81,6 +81,8 @@
     "applying": "正在应用…",
     "applyAll": "应用到所有片段",
     "hookTitle": "开场标题",
+    "localizedHookTitle": "本地化开场标题",
+    "restoreHookTitle": "恢复源标题",
     "hookDescription": "拖动时间轴上标题的边缘，设置显示时间。留空即可移除。",
     "hookPlaceholder": "无开场标题",
     "transcript": "文字稿",

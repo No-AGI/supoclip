@@ -599,7 +599,7 @@ for (const width of [1440, 390]) test(`timeline typing updates the video before 
     const typed = await pixels(label);
     await input.press("Enter");
     await expect.poll(() => pixels(label)).toEqual(typed);
-    const text = () => label === "Hook title" ? documents.get("clip1")!.document.hookTitle : documents.get("clip1")!.document.words.map(w => w.text).join(" ");
+    const text = () => label === "Hook title" ? documents.get("clip1")!.document.localizedHookTitle ?? documents.get("clip1")!.document.hookTitle : documents.get("clip1")!.document.words.map(w => w.text).join(" ");
     await expect.poll(text).toBe(after);
     await page.getByRole("button", { name: "Undo", exact: true }).click();
     await expect.poll(text).toBe(before);

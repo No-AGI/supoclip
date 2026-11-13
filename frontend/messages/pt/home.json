@@ -135,6 +135,12 @@
     "hint": "Duração desejada antes de remover pausas e vícios de linguagem. Sua escolha é salva como padrão.",
     "saveError": "Não foi possível salvar o padrão. Este vídeo usará sua escolha."
   },
+  "clipProfile": {
+    "section": "Seleção de clipes",
+    "general": "Vídeo geral",
+    "gamingStream": "Live de jogos",
+    "hint": "Mantém a explicação e o diálogo antes da reação; a seleção usa apenas a transcrição."
+  },
   "whatToMake": "O que você quer criar?",
   "workflows": {
     "highlights": {

@@ -810,6 +810,7 @@ class VideoService:
         performance_context: Optional[str] = None,
         clip_length: str = "auto",
         instructions: Optional[str] = None,
+        clip_profile: str = "general",
     ) -> Any:
         """
         Analyze transcript with AI to find relevant segments.
@@ -824,6 +825,7 @@ class VideoService:
             performance_context=performance_context,
             clip_length=clip_length,
             include_reserve=True,
+            clip_profile=clip_profile,
             **({"instructions": instructions} if instructions else {}),
         )
         logger.info(
@@ -1146,6 +1148,7 @@ class VideoService:
         runtime_config: Any,
         checkpoint: Dict[str, Any],
         save_checkpoint: Callable[[Dict[str, Any]], Awaitable[None]],
+        clip_profile: str = "general",
         instructions: Optional[str] = None,
         max_clips: Optional[int] = None,
     ) -> tuple[Any, List[Dict[str, Any]], int, bool]:
@@ -1209,6 +1212,7 @@ class VideoService:
                 clip_signals=clip_signals,
                 performance_context=performance_context,
                 clip_length=clip_length,
+                **({"clip_profile": clip_profile} if clip_profile != "general" else {}),
                 **({"instructions": instructions} if instructions else {}),
             )
 
@@ -1340,6 +1344,7 @@ class VideoService:
         plan_cache: Optional[PlanCache] = None,
         outline_cache_key: Optional[str] = None,
         cleanup_settings: Optional[Dict[str, Any]] = None,
+        clip_profile: str = "general",
     ) -> Dict[str, Any]:
         """
         Complete video processing pipeline.
@@ -1575,6 +1580,7 @@ class VideoService:
                     runtime_config=runtime_config,
                     checkpoint=checkpoint,
                     save_checkpoint=save_checkpoint,
+                    **({"clip_profile": clip_profile} if clip_profile != "general" else {}),
                     **({"instructions": instructions} if instructions else {}),
                     **({"max_clips": requested_clips} if requested_clips is not None else {}),
                 )

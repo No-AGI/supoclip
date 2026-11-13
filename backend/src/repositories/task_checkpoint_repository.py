@@ -11,7 +11,8 @@ from .edit_transaction import TaskCancelled, commit_unless_editing
 
 
 def checkpoint_input_key(url: str, source_type: str, processing_mode: str,
-                         clip_length: str, config: Any) -> str:
+                         clip_length: str, config: Any,
+                         clip_profile: str = "general") -> str:
     # Provider/language changes invalidate word timings. Rendering preferences
     # don't: retries keep completed clips and apply current styling to new ones.
     inputs = {
@@ -21,6 +22,8 @@ def checkpoint_input_key(url: str, source_type: str, processing_mode: str,
         "transcription_language": getattr(config, "transcription_language", ""),
         "whisper_model": getattr(config, "whisper_model", ""),
     }
+    if clip_profile != "general":
+        inputs["clip_profile"] = f"{clip_profile}:v1"
     return hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
 
 

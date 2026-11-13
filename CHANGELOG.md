@@ -6,6 +6,9 @@ Add a line here when a pull request changes something a user can see. Use **New*
 
 ## 2026-11-13
 
+- **New:** Add an OpenAI-compatible model connection, test it, and choose whether to add it to the fallback chain. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+- **New:** Choose a gaming-stream profile to prioritize complete spoken moments and their context, and translate and edit a clip's headline. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+- **Improved:** The interface is available in Russian. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 - **Improved:** Clip downloads use readable names, the editor shows approximate Reels safe areas, and post descriptions can be generated in Russian. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 - **Improved:** The admin dashboard refreshes its counts and shows waiting and processing tasks separately. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 

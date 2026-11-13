@@ -122,6 +122,8 @@ export interface EditDocument {
   muted: boolean;
   /** Headline shown at the top for the first seconds; absent on very old drafts. */
   hookTitle?: string;
+  /** Optional translated/editable hook; hookTitle remains the source title. */
+  localizedHookTitle?: string | null;
   /** Hook visibility in edited/output seconds. Missing preserves the generated default. */
   hookTiming?: { start: number; end: number } | null;
   /** Normalized offsets from the original text anchors; independent font scales. */
@@ -134,6 +136,8 @@ export interface EditDocument {
   translation?: TranslationState;
 }
 export type TextLayer = "hook" | "captions";
+export const effectiveHookTitle = (doc: EditDocument): string =>
+  doc.localizedHookTitle ?? doc.hookTitle ?? "";
 export interface TextTransform { x: number; y: number; scale: number }
 export interface CaptionTransform extends TextTransform { size?: number | null }
 export const textTransform = (doc: EditDocument, layer: TextLayer): TextTransform =>

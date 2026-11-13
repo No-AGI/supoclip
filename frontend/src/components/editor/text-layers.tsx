@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { captionGroups, captionKey, hookRange, mappedWords, outputSize, outputTime, replaceCaptionGroup, type EditDocument, type EditorState, type TextLayer } from "@/lib/editor/document";
+import { captionGroups, captionKey, effectiveHookTitle, hookRange, mappedWords, outputSize, outputTime, replaceCaptionGroup, type EditDocument, type EditorState, type TextLayer } from "@/lib/editor/document";
 import { drawEditorTextLayer, formatHookEditorText, loadEditorFont, prepareTextDraft, textEditorLayout, textLayerBounds, type TextBounds, type TextDraft, type TextEditorLayout } from "@/lib/editor/render";
 import { TransformableText } from "./transformable-text";
 
@@ -27,6 +27,7 @@ export function TextLayers({ doc, asset, time, index, videoRef, update, resoluti
   const size = outputSize(doc, asset.width, asset.height);
   const at = outputTime(doc, Math.min(index, doc.segments.length - 1), time);
   const range = hookRange(doc);
+  const hookTitle = effectiveHookTitle(doc);
   const group = captionGroups(mappedWords(doc), doc.captions.wordsPerLine)
     .find(words => at >= words[0].start && at < words[words.length - 1].end);
   const measure = (document: EditDocument, layer: TextLayer) => {
@@ -69,14 +70,14 @@ export function TextLayers({ doc, asset, time, index, videoRef, update, resoluti
   return <div ref={frameRef} className="pointer-events-none absolute inset-0">
     <canvas ref={hookCanvas} aria-label={t("captions.hookTitle")} width={resolution.width} height={resolution.height} className="absolute inset-0 h-full w-full" />
     <canvas ref={captionCanvas} aria-label={t("timeline.tracks.captions")} width={resolution.width} height={resolution.height} className="absolute inset-0 h-full w-full" />
-    {doc.hookTitle?.trim() && bounds.hook && (at >= range.start && at < range.end) && <TransformableText
-      {...shared} layer="hook" label={t("captions.hookTitle")} value={doc.hookTitle} bounds={bounds.hook}
-      buttonLabel={`${t("preview.region")}: ${t("captions.hookTitle")}: ${doc.hookTitle}`}
+    {hookTitle.trim() && bounds.hook && (at >= range.start && at < range.end) && <TransformableText
+      {...shared} layer="hook" label={t("captions.hookTitle")} value={hookTitle} bounds={bounds.hook}
+      buttonLabel={`${t("preview.region")}: ${t("captions.hookTitle")}: ${hookTitle}`}
       measure={document => measure(document, "hook")}
       editorLayout={layouts.hook}
       formatValue={text => formatHookEditorText(doc, size.width, size.height, text)}
       onDraft={text => editDraft("hook", text)}
-      onCommit={hookTitle => update(current => ({ ...current, hookTitle }))}
+      onCommit={localizedHookTitle => update(current => ({ ...current, localizedHookTitle }))}
     />}
     {doc.captions.enabled && group && bounds.captions && <TransformableText
       {...shared} key={captionKey(doc, group)} captionId={captionKey(doc, group)} layer="captions" label={t("timeline.tracks.captions")}

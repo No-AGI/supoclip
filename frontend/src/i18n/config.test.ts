@@ -15,6 +15,8 @@ describe("negotiateLocale", () => {
     expect(negotiateLocale("zh-Hant-TW,zh;q=0.9,en;q=0.8")).toBe("zh");
     expect(negotiateLocale("id-ID,id;q=0.9,en;q=0.8")).toBe("id");
     expect(negotiateLocale("en-US,en;q=0.9")).toBe("en");
+    expect(negotiateLocale("ru-RU,ru;q=0.9,en;q=0.8")).toBe("ru");
+    expect(negotiateLocale("ru")).toBe("ru");
   });
 });
 
@@ -24,6 +26,7 @@ describe("locale helpers", () => {
     expect(intlLocale("pt")).toBe("pt-BR");
     expect(intlLocale("de")).toBe("de");
     expect(intlLocale("id")).toBe("id");
+    expect(intlLocale("ru")).toBe("ru");
   });
 
   it("builds flat catalog keys from paths", () => {

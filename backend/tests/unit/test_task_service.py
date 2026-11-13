@@ -119,6 +119,18 @@ def test_cache_key_includes_analysis_prompt_version():
     assert cache_key == expected
 
 
+def test_analysis_cache_key_isolated_by_opt_in_clip_profile():
+    source_key = TaskService._build_cache_key("upload://one.mp4", "upload", "fast")
+    assert TaskService._build_analysis_cache_key(source_key) == source_key
+    assert TaskService._build_analysis_cache_key(source_key, clip_profile="gaming_stream") != source_key
+    assert TaskService._build_analysis_cache_key(source_key, clip_profile="gaming_stream") != (
+        TaskService._build_analysis_cache_key(source_key, clip_profile="general")
+    )
+    assert TaskService._build_analysis_cache_key(
+        source_key, "short", "gaming_stream"
+    ) != TaskService._build_analysis_cache_key(source_key, "short", "general")
+
+
 @pytest.mark.asyncio
 async def test_update_clip_captions_passes_stored_task_style(isolated_clip_edits, monkeypatch, tmp_path):
     config = Config()

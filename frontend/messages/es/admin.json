@@ -190,6 +190,22 @@
     "result": "Resultado",
     "ok": "Respondió",
     "answeredBy": "Respondió",
-    "testFailed": "No se pudo comprobar el modelo"
+    "testFailed": "No se pudo comprobar el modelo",
+    "connectionsTitle": "Conexiones LLM personalizadas",
+    "connectionsDescription": "Añade un proveedor compatible con OpenAI. Las claves se guardan de forma segura y no vuelven a mostrarse.",
+    "connectionsLoadFailed": "No se pudieron cargar las conexiones",
+    "connectionSaveFailed": "No se pudo guardar la conexión",
+    "connectionDeleteFailed": "No se pudo eliminar la conexión",
+    "connectionTestFailed": "Falló la prueba de conexión",
+    "connectionPreset": "Proveedor preconfigurado",
+    "connectionCustom": "URL personalizada",
+    "connectionName": "Nombre de conexión",
+    "connectionBaseUrl": "URL base",
+    "connectionModel": "Modelo",
+    "connectionApiKey": "Clave API",
+    "connectionSave": "Guardar conexión",
+    "connectionTest": "Probar conexión",
+    "connectionTestOk": "Conexión correcta en {seconds}s",
+    "connectionAddFallback": "Añadir a la cadena de respaldo"
   }
 }

@@ -81,6 +81,8 @@
     "applying": "Menerapkan…",
     "applyAll": "Terapkan ke semua clip",
     "hookTitle": "Judul hook",
+    "localizedHookTitle": "Judul hook terjemahan",
+    "restoreHookTitle": "Pulihkan judul sumber",
     "hookDescription": "Tarik tepi judul di linimasa untuk mengatur kapan judul muncul. Kosongkan untuk menghapusnya.",
     "hookPlaceholder": "Tanpa judul hook",
     "transcript": "Transkrip",

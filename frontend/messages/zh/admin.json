@@ -190,6 +190,22 @@
     "result": "结果",
     "ok": "已回答",
     "answeredBy": "回答者",
-    "testFailed": "无法检查该模型"
+    "testFailed": "无法检查该模型",
+    "connectionsTitle": "自定义 LLM 连接",
+    "connectionsDescription": "添加兼容 OpenAI 的服务商。密钥会安全保存，之后不会再次显示。",
+    "connectionsLoadFailed": "无法加载自定义连接",
+    "connectionSaveFailed": "无法保存连接",
+    "connectionDeleteFailed": "无法删除连接",
+    "connectionTestFailed": "连接测试失败",
+    "connectionPreset": "服务商预设",
+    "connectionCustom": "自定义 URL",
+    "connectionName": "连接名称",
+    "connectionBaseUrl": "基础 URL",
+    "connectionModel": "模型",
+    "connectionApiKey": "API 密钥",
+    "connectionSave": "保存连接",
+    "connectionTest": "测试连接",
+    "connectionTestOk": "连接成功，用时 {seconds} 秒",
+    "connectionAddFallback": "添加到备用链"
   }
 }

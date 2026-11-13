@@ -180,15 +180,24 @@ class TaskService(ClipEditingMixin):
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     @staticmethod
-    def _build_analysis_cache_key(cache_key: str, clip_length: str = "auto") -> str:
+    def _build_analysis_cache_key(
+        cache_key: str,
+        clip_length: str = "auto",
+        clip_profile: str = "general",
+    ) -> str:
         """Row holding the analysis for a preset. Auto keeps the source row.
 
         The source and transcript do not depend on the preset, so other presets
-        store only their analysis under a derived key and share the rest.
+        store only their analysis under a derived key and share the rest. An
+        opt-in selection profile always gets a separate analysis row.
         """
-        if validate_clip_length(clip_length) == "auto":
+        if validate_clip_length(clip_length) == "auto" and clip_profile == "general":
             return cache_key
-        payload = f"{cache_key}|length:{clip_length}"
+        payload = cache_key
+        if validate_clip_length(clip_length) != "auto":
+            payload += f"|length:{clip_length}"
+        if clip_profile == "gaming_stream":
+            payload += "|profile:gaming_stream:v1"
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     @staticmethod
@@ -490,6 +499,7 @@ class TaskService(ClipEditingMixin):
         clip_ready_callback: Optional[Callable] = None,
         cleanup_settings: Optional[Dict[str, Any]] = None,
         clip_length: str = "auto",
+        clip_profile: str = "general",
     ) -> Dict[str, Any]:
         """
         Process a task: download video, analyze, create clips.
@@ -520,6 +530,13 @@ class TaskService(ClipEditingMixin):
             # honour it with the ARQ job arguments unchanged.
             task_row = await self.task_repo.get_task_by_id(self.db, task_id) or {}
             spec = workflow_spec_from_task(task_row, clip_length)
+            # Profiles currently apply only to ordinary highlights. Other
+            # workflow types keep their established selection and cache path.
+            clip_profile = (
+                "gaming_stream"
+                if clip_profile == "gaming_stream" and spec.legacy
+                else "general"
+            )
             prior_outputs = bool(await self.clip_repo.get_clips_by_task(self.db, task_id))
             # New tasks already have an atomic acceptance charge. Recover queued
             # legacy jobs with missing durations before doing paid processing.
@@ -542,7 +559,9 @@ class TaskService(ClipEditingMixin):
                 url, source_type, processing_mode, download_quality
             )
             if spec.legacy:
-                analysis_cache_key = self._build_analysis_cache_key(cache_key, clip_length)
+                analysis_cache_key = self._build_analysis_cache_key(
+                    cache_key, clip_length, clip_profile
+                )
             else:
                 analysis_cache_key = self._build_workflow_cache_key(
                     cache_key, spec, self.config, cleanup_settings
@@ -572,7 +591,10 @@ class TaskService(ClipEditingMixin):
             )
             if performance_context:
                 cached_analysis_json = None
-            input_key = checkpoint_input_key(url, source_type, processing_mode, clip_length, self.config)
+            input_key = checkpoint_input_key(
+                url, source_type, processing_mode, clip_length, self.config,
+                clip_profile=clip_profile,
+            )
             checkpoint = await self.checkpoint_repo.get(self.db, task_id, input_key)
             cache_hit = bool(
                 (checkpoint.get("transcript") or cached_transcript)
@@ -671,6 +693,7 @@ class TaskService(ClipEditingMixin):
                 should_cancel=should_cancel,
                 performance_context=performance_context,
                 clip_length=clip_length,
+                clip_profile=clip_profile,
                 checkpoint=checkpoint,
                 checkpoint_callback=save_checkpoint,
                 **workflow_kwargs,

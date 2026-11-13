@@ -135,6 +135,12 @@
     "hint": "Target durasi sebelum jeda dan kata pengisi dihapus. Pilihan Anda disimpan sebagai default.",
     "saveError": "Gagal menyimpan default. Video ini tetap menggunakan pilihan Anda."
   },
+  "clipProfile": {
+    "section": "Pemilihan klip",
+    "general": "Video umum",
+    "gamingStream": "Streaming game",
+    "hint": "Mempertahankan penjelasan dan dialog sebelum reaksi; pemilihan hanya menggunakan transkrip."
+  },
   "whatToMake": "Apa yang ingin kamu buat?",
   "workflows": {
     "highlights": {

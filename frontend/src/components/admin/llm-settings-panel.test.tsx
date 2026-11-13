@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, expect, it, vi } from "vitest";
 
 import { LlmSettingsPanel } from "./llm-settings-panel";
+import { LlmConnections } from "./llm-connections";
 
 const settings = {
   primary: "google-gla:gemini-3-flash-preview",
@@ -110,4 +112,48 @@ it("shows every attempt of the chain", async () => {
   expect(
     screen.getAllByText("google-gla:gemini-2.5-flash").length,
   ).toBeGreaterThan(0);
+});
+
+it("tests a custom connection explicitly, then adds it to the unsaved fallback chain", async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+    calls.push({ url, init });
+    if (url === "/api/admin/llm") return Response.json(settings);
+    if (url === "/api/admin/llm/connections") {
+      return Response.json({ connections: [{ id: "conn-1", name: "Groq", base_url: "https://api.groq.com/openai/v1", model: "llama-test", key_fingerprint: "…abcd" }] });
+    }
+    if (url.endsWith("/conn-1/test")) return Response.json({ id: "conn-1", ok: true, seconds: 0.4, model: "conn-1:llama-test" });
+    if (url.endsWith("/chain") && init?.method === "PATCH") return Response.json({});
+    return Response.json({});
+  }));
+  render(<LlmSettingsPanel />);
+  const test = await screen.findByRole("button", { name: /test connection/i });
+  expect(screen.getByText(/…abcd/)).toBeInTheDocument();
+  fireEvent.click(test);
+  fireEvent.click(await screen.findByRole("button", { name: /add to fallback chain/i }));
+  expect(screen.getByText("conn-1:llama-test")).toBeInTheDocument();
+
+  // Adding is only an edit to the current chain until Save is clicked.
+  expect(calls.some(({ url }) => url.endsWith("/chain"))).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+  await waitFor(() => expect(calls.some(({ url }) => url.endsWith("/chain"))).toBe(true));
+  const saved = calls.find(({ url }) => url.endsWith("/chain"));
+  expect(saved?.init?.body).toContain("conn-1:llama-test");
+});
+
+it("uses inline Russian labels for custom connections when the locale catalog has no new keys", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (url === "/api/admin/llm/connections") return Response.json({ connections: [{ id: "ru-conn", name: "DeepSeek", base_url: "https://api.deepseek.com/v1", model: "deepseek-chat", key_fingerprint: "…abcd" }] });
+    if (url.endsWith("/ru-conn/test")) return Response.json({ id: "ru-conn", ok: true, seconds: 0.7, model: "ru-conn:deepseek-chat" });
+    return Response.json({});
+  }));
+  render(
+    <NextIntlClientProvider locale="ru" messages={{ admin: { llm: { remove: "Удалить" } } }}>
+      <LlmConnections onAddFallback={() => undefined} />
+    </NextIntlClientProvider>,
+  );
+  expect(await screen.findByText("Пользовательские подключения LLM")).toBeInTheDocument();
+  expect(screen.getByLabelText("API-ключ")).toHaveAttribute("type", "password");
+  fireEvent.click(screen.getByRole("button", { name: "Проверить подключение" }));
+  expect(await screen.findByText("Подключение работает, время: 0.7 с")).toBeInTheDocument();
 });
