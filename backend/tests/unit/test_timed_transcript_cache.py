@@ -149,7 +149,6 @@ async def test_cache_save_refuses_transcripts_without_timing_words():
 
 
 
-
 @pytest.mark.asyncio
 async def test_cache_save_rejects_invalid_or_unordered_word_timing():
     db = AsyncMock()
