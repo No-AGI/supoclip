@@ -200,6 +200,15 @@ class EditorStore:
             """), {"id": job_id, "key": key})).mappings().first()
         return present_job(row) if row else None
 
+    async def job_request(self, key: str, job_id: str) -> dict | None:
+        """Return the immutable request for a job owned by this editor session."""
+        async with self._session() as db:
+            row = (await db.execute(text("""
+                SELECT request FROM editor_jobs
+                WHERE id = :id AND session_id = :key
+            """), {"id": job_id, "key": key})).mappings().first()
+        return _json(row["request"]) if row else None
+
     async def jobs(self, key: str, limit: int = 20) -> list[dict]:
         async with self._session() as db:
             rows = (await db.execute(text("""

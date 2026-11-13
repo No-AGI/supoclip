@@ -6,6 +6,7 @@ Add a line here when a pull request changes something a user can see. Use **New*
 
 ## 2026-11-13
 
+- **New:** Download a completed editor export with its matching subtitles and available cover in a publication ZIP; its manifest identifies missing files. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 - **Improved:** When the same YouTube source is processed again, reusable word timings can be kept per account and reused when the downloaded media and transcription settings match. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 - **New:** Download the subtitles from a saved editor draft as an SRT file. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 - **New:** Add an OpenAI-compatible model connection, test it, and choose whether to add it to the fallback chain. ([#1](https://github.com/No-AGI/supoclip/pull/1))

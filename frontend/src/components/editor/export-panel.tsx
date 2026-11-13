@@ -426,7 +426,7 @@ export function ExportPanel({
                     )}
                   </div>
                   {job.status === "completed" ? (
-                    <Button size="sm" variant="outline" asChild>
+                    <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" asChild>
                       <a
                         href={`${job.endpoint}/exports/${job.id}/file`}
                         download
@@ -436,6 +436,11 @@ export function ExportPanel({
                         {t("export.download")}
                       </a>
                     </Button>
+                    <Button size="sm" variant="outline" asChild>
+                      <a href={`${job.endpoint}/exports/${job.id}/publish.zip`} download>
+                        {locale === "ru" ? "Пакет ZIP" : "Publish ZIP"}
+                      </a>
+                    </Button></div>
                   ) : (
                     (job.status === "queued" || job.status === "rendering") && (
                       <Button

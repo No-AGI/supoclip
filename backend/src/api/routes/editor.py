@@ -7,7 +7,9 @@ import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from starlette.background import BackgroundTask
+from ... import clip_archive
 from ...media_storage import MediaStorage, STORAGE_ERRORS, media_work
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +27,7 @@ from ...editor_state import (
     reap_jobs,
     render_job_id,
 )
+from ...services.editor_publish_package import prepare_publish_package
 from ...services.editor_service import caption_looks, upgrade_document
 from ...services.task_service import TaskService
 from ...services.ai_edit_allowance_service import (
@@ -302,8 +305,17 @@ async def start_export(
     await reap_jobs(session.key)
     job_id = new_job_id()
     # The job keeps the exact document it renders; later saves do not change it.
+    saved_draft = state.get("draft") or {}
+    snapshot_revision = (
+        saved_draft.get("revision")
+        if saved_draft.get("document") == document.model_dump()
+        else None
+    )
     if not await store.create_job(
-        session.key, job_id, "export", {"document": document.model_dump(), "preset": preset}
+        session.key, job_id, "export", {
+            "document": document.model_dump(), "preset": preset,
+            "draft_revision": snapshot_revision,
+        }
     ):
         raise HTTPException(429, "Three exports are already running for this clip")
     try:
@@ -376,6 +388,74 @@ async def export_file(
         media_type="video/mp4",
         filename=filename,
         headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.get("/{task_id}/clips/{clip_id}/editor/exports/{job_id}/publish.zip")
+async def export_publish_package(
+    task_id: str,
+    clip_id: str,
+    job_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    """Download a ZIP whose media and subtitle sidecar come from one export job."""
+    task, clip, session = await owned_context(
+        request, db, task_id, clip_id, include_download_position=True
+    )
+    job = await _job(session, job_id)
+    if job["status"] != "completed":
+        raise HTTPException(409, "Export is not ready")
+    job_request = await get_store().job_request(session.key, job_id)
+    if not isinstance(job_request, dict) or not isinstance(job_request.get("document"), dict):
+        raise HTTPException(409, "The export snapshot is unavailable")
+    if not isinstance(job_request.get("draft_revision"), int):
+        raise HTTPException(409, "This export was not created from a saved draft revision")
+
+    storage = MediaStorage()
+    filename = clip_download_filename(
+        clip, task.get("source_title"), position=clip.get("_download_position"), preset="editor",
+    )
+    try:
+        temporary, entries, _manifest = await run_in_thread(
+            prepare_publish_package,
+            session,
+            storage,
+            task_id=task_id,
+            clip_id=clip_id,
+            job_id=job_id,
+            job_request=job_request,
+            filename=filename,
+            source_title=task.get("source_title"),
+            clip_title=clip.get("hook_title"),
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(409, str(exc)) from None
+    except (ValueError, ValidationError) as exc:
+        raise HTTPException(409, "The export snapshot is invalid") from exc
+    except STORAGE_ERRORS:
+        raise HTTPException(503, "Media storage is temporarily unavailable") from None
+
+    async def stream():
+        try:
+            async for chunk in clip_archive.stream_archive(
+                entries, lambda entry: clip_archive.open_entry(entry, storage)
+            ):
+                yield chunk
+        finally:
+            temporary.cleanup()
+
+    capture_clip_export(request, task, surface="editor", format="publish_zip")
+    package_name = filename[:-4] + "-publish.zip" if filename.lower().endswith(".mp4") else "publish.zip"
+    return StreamingResponse(
+        stream(),
+        media_type="application/zip",
+        background=BackgroundTask(temporary.cleanup),
+        headers={
+            "Content-Disposition": clip_archive.content_disposition(package_name),
+            "Cache-Control": "private, no-store",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
