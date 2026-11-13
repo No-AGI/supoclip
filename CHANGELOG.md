@@ -4,6 +4,11 @@ What changed in SupoClip for people using the product. Newest dates are first.
 
 Add a line here when a pull request changes something a user can see. Use **New**, **Improved**, **Fixed**, or **Under the hood**, describe the change in plain language, and link the pull request. Skip internal-only work, or fold it into one **Under the hood** line. Do not include customer names, email addresses, user IDs, or anything else private.
 
+## 2026-11-13
+
+- **Improved:** Clip downloads use readable names, the editor shows approximate Reels safe areas, and post descriptions can be generated in Russian. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+- **Improved:** The admin dashboard refreshes its counts and shows waiting and processing tasks separately. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+
 ## 2026-11-12
 
 - **New:** The subtitle editor can translate the captions into Russian. The translation is matched to the spoken phrases of the original, so every translated word keeps the timing of the phrase it belongs to and a pause in the speech stays a pause on screen. You can translate with AI, paste your own translation, and correct the matching phrase by phrase. ([#380](https://github.com/FujiwaraChoki/supoclip/pull/380))
