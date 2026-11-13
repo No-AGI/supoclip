@@ -85,6 +85,8 @@ def prepare_publish_package(
     filename: str,
     source_title: str | None = None,
     clip_title: str | None = None,
+    social_caption: str | None = None,
+    social_hashtags: str | None = None,
 ) -> tuple[tempfile.TemporaryDirectory, list[ArchiveEntry], dict[str, Any]]:
     """Prepare sidecar files and entries; caller owns the temporary directory."""
     document = EditDocument.model_validate(job_request["document"])
@@ -92,10 +94,19 @@ def prepare_publish_package(
     temporary = tempfile.TemporaryDirectory(prefix=f"publish-{job_id}-", dir=session.directory)
     scratch = Path(temporary.name)
     entries = [ArchiveEntry(filename, export_ref, export_size)]
-    missing: list[dict[str, str]] = [
-        {"file": "social_caption.txt", "reason": "no_caption_saved_for_export_job"}
-    ]
+    missing: list[dict[str, str]] = []
     try:
+        for name, content, reason in (
+            ("social_caption.txt", social_caption, "no_caption_saved_for_export_job"),
+            ("social_hashtags.txt", social_hashtags, "no_hashtags_supplied"),
+        ):
+            if content is None or not content.strip():
+                missing.append({"file": name, "reason": reason})
+            else:
+                sidecar = scratch / name
+                sidecar.write_text(content, encoding="utf-8", newline="")
+                entries.append(ArchiveEntry(name, str(sidecar), sidecar.stat().st_size))
+
         subtitles, subtitle_error = _srt(document)
         if subtitles is None:
             missing.append({"file": "captions.srt", "reason": subtitle_error or "unavailable"})
@@ -131,7 +142,7 @@ def prepare_publish_package(
             ],
             "files": [
                 {"file": filename, "status": "included"},
-                *[{"file": name, "status": "included"} for name in ("captions.srt", "cover.jpg", "social_caption.txt") if name in existing],
+                *[{"file": name, "status": "included"} for name in ("captions.srt", "cover.jpg", "social_caption.txt", "social_hashtags.txt") if name in existing],
                 *[{"file": item["file"], "status": "missing", "reason": item["reason"]} for item in missing],
                 {"file": "manifest.json", "status": "included"},
             ],

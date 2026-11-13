@@ -109,6 +109,10 @@ export function ExportPanel({
   } | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]),
     [error, setError] = useState<string | null>(null);
+  const [socialCaption, setSocialCaption] = useState(
+    clip.workflow_meta?.post_caption ?? "",
+  );
+  const [socialHashtags, setSocialHashtags] = useState("");
   const controller = useRef<AbortController | null>(null);
   const endpoint = `/api/tasks/${taskId}/clips/${clip.id}/editor`;
   const size = outputSize(doc, asset.width, asset.height),
@@ -167,6 +171,10 @@ export function ExportPanel({
     return () => clearInterval(timer);
   }, [open, refresh]);
   useEffect(() => () => controller.current?.abort(), []);
+  useEffect(() => {
+    setSocialCaption(clip.workflow_meta?.post_caption ?? "");
+    setSocialHashtags("");
+  }, [clip.id, clip.text, clip.workflow_meta?.post_caption]);
   useEffect(() => {
     if (!busy || mode !== "browser") return;
     const warn = (event: BeforeUnloadEvent) => event.preventDefault();
@@ -339,6 +347,36 @@ export function ExportPanel({
           </a>
           {locale === "ru" ? " — сохраните изменения перед скачиванием." : " — save changes before downloading."}
         </p>
+        <div className="space-y-3 rounded-lg border p-3">
+          <p className="text-sm font-medium">
+            {locale === "ru" ? "Описание для публикации" : "Social post text"}
+          </p>
+          <label className="block space-y-1.5 text-xs text-muted-foreground">
+            <span>{locale === "ru" ? "Подпись (можно редактировать)" : "Caption (editable)"}</span>
+            <textarea
+              value={socialCaption}
+              maxLength={2200}
+              rows={4}
+              className="flex min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onChange={(event) => setSocialCaption(event.target.value)}
+            />
+          </label>
+          <label className="block space-y-1.5 text-xs text-muted-foreground">
+            <span>{locale === "ru" ? "Хэштеги (без изменений)" : "Hashtags (kept as entered)"}</span>
+            <textarea
+              value={socialHashtags}
+              maxLength={4000}
+              rows={2}
+              className="flex min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onChange={(event) => setSocialHashtags(event.target.value)}
+            />
+          </label>
+          <p className="text-xs text-muted-foreground">
+            {locale === "ru"
+              ? "Описание не создаётся автоматически. Эти подпись и хэштеги добавятся в каждый пакет ZIP ниже."
+              : "No caption is generated automatically. This caption and hashtags go into every Publish ZIP below."}
+          </p>
+        </div>
         {busy ? (
           <div className="space-y-2 rounded-lg border p-3">
             <div className="flex items-center justify-between text-sm">
@@ -436,11 +474,25 @@ export function ExportPanel({
                         {t("export.download")}
                       </a>
                     </Button>
-                    <Button size="sm" variant="outline" asChild>
-                      <a href={`${job.endpoint}/exports/${job.id}/publish.zip`} download>
+                    <form
+                      method="post"
+                      action={`${job.endpoint}/exports/${job.id}/publish.zip`}
+                      target="_blank"
+                      onSubmit={() =>
+                        toast.info(
+                          locale === "ru"
+                            ? "Запрос ZIP отправлен; загрузка или ошибка появится в новой вкладке"
+                            : "ZIP request sent; download or any error will appear in the new tab",
+                        )
+                      }
+                    >
+                      <input type="hidden" name="caption" value={socialCaption} />
+                      <input type="hidden" name="hashtags" value={socialHashtags} />
+                      <Button size="sm" variant="outline" type="submit">
+                        <Download />
                         {locale === "ru" ? "Пакет ZIP" : "Publish ZIP"}
-                      </a>
-                    </Button></div>
+                      </Button>
+                    </form></div>
                   ) : (
                     (job.status === "queued" || job.status === "rendering") && (
                       <Button

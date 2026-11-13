@@ -5,6 +5,7 @@ import math
 import json
 import re
 import uuid
+from urllib.parse import parse_qs
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
@@ -38,6 +39,9 @@ from ...utils.async_helpers import run_in_thread
 from .tasks import _require_task_owner, _read_json_object
 
 router = APIRouter(prefix="/tasks", tags=["editor"])
+PUBLISH_FORM_MAX_BYTES = 64 * 1024
+PUBLISH_CAPTION_MAX_CHARS = 2200
+PUBLISH_HASHTAGS_MAX_CHARS = 4000
 
 
 async def owned_context(request, db, task_id, clip_id, *, include_download_position=False):
@@ -391,13 +395,47 @@ async def export_file(
     )
 
 
-@router.get("/{task_id}/clips/{clip_id}/editor/exports/{job_id}/publish.zip")
-async def export_publish_package(
+async def _publish_form_values(request: Request) -> tuple[str | None, str | None]:
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if content_type != "application/x-www-form-urlencoded":
+        raise HTTPException(415, "Use an HTML form to submit publish text")
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > PUBLISH_FORM_MAX_BYTES:
+            raise HTTPException(413, "Publish text is too large")
+        chunks.append(chunk)
+    try:
+        values = parse_qs(
+            b"".join(chunks).decode("ascii"),
+            keep_blank_values=True,
+            strict_parsing=True,
+            encoding="utf-8",
+            errors="strict",
+        )
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise HTTPException(400, "Invalid publish form") from exc
+    if set(values) - {"caption", "hashtags"} or any(len(items) != 1 for items in values.values()):
+        raise HTTPException(400, "Invalid publish form fields")
+    caption = values.get("caption", [None])[0]
+    hashtags = values.get("hashtags", [None])[0]
+    if caption is not None and len(caption) > PUBLISH_CAPTION_MAX_CHARS:
+        raise HTTPException(422, "Caption must be 2200 characters or fewer")
+    if hashtags is not None and len(hashtags) > PUBLISH_HASHTAGS_MAX_CHARS:
+        raise HTTPException(422, "Hashtags must be 4000 characters or fewer")
+    return caption, hashtags
+
+
+async def _export_publish_package(
     task_id: str,
     clip_id: str,
     job_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db, scope="function"),
+    *,
+    social_caption: str | None = None,
+    social_hashtags: str | None = None,
 ):
     """Download a ZIP whose media and subtitle sidecar come from one export job."""
     task, clip, session = await owned_context(
@@ -428,6 +466,8 @@ async def export_publish_package(
             filename=filename,
             source_title=task.get("source_title"),
             clip_title=clip.get("hook_title"),
+            social_caption=social_caption,
+            social_hashtags=social_hashtags,
         )
     except FileNotFoundError as exc:
         raise HTTPException(409, str(exc)) from None
@@ -456,6 +496,37 @@ async def export_publish_package(
             "Cache-Control": "private, no-store",
             "X-Accel-Buffering": "no",
         },
+    )
+
+
+@router.get("/{task_id}/clips/{clip_id}/editor/exports/{job_id}/publish.zip")
+async def export_publish_package(
+    task_id: str,
+    clip_id: str,
+    job_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    return await _export_publish_package(task_id, clip_id, job_id, request, db)
+
+
+@router.post("/{task_id}/clips/{clip_id}/editor/exports/{job_id}/publish.zip")
+async def export_publish_package_with_social_text(
+    task_id: str,
+    clip_id: str,
+    job_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    caption, hashtags = await _publish_form_values(request)
+    return await _export_publish_package(
+        task_id,
+        clip_id,
+        job_id,
+        request,
+        db,
+        social_caption=caption,
+        social_hashtags=hashtags,
     )
 
 

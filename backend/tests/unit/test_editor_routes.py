@@ -171,7 +171,9 @@ async def test_publish_package_pairs_srt_with_completed_job_snapshot(client, edi
         assert "Saved revision." in archive.read("captions.srt").decode()
         manifest = json.loads(archive.read("manifest.json"))
         assert manifest["draft_revision"] == 1
-        assert {item["file"] for item in manifest["missing"]} == {"social_caption.txt"}
+        assert {item["file"] for item in manifest["missing"]} == {
+            "social_caption.txt", "social_hashtags.txt",
+        }
 
 
 async def test_publish_package_rejects_export_without_saved_revision(client, editor_store):
@@ -183,6 +185,73 @@ async def test_publish_package_rejects_export_without_saved_revision(client, edi
     await editor_store.finish_job(job_id, claim, "completed")
     response = await http.get(f"/tasks/task/clips/clip/editor/exports/{job_id}/publish.zip")
     assert response.status_code == 409
+
+
+async def test_publish_package_post_includes_user_supplied_social_text(client, editor_store, monkeypatch):
+    http, service, doc, directory = client
+    job_id = "e" * 32
+    key = editor_key("task", "clip", "clip.mp4")
+    await editor_store.create_job(key, job_id, "export", {
+        "document": doc, "preset": "reels", "draft_revision": 0,
+    })
+    claim = (await editor_store.start_job(job_id))["claim"]
+    await editor_store.finish_job(job_id, claim, "completed")
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"export-{job_id}.mp4").write_bytes(b"exact export")
+    monkeypatch.setattr("src.services.editor_publish_package._extract_cover", lambda source, target: False)
+
+    response = await http.post(
+        f"/tasks/task/clips/clip/editor/exports/{job_id}/publish.zip",
+        data={"caption": "Editable caption", "hashtags": "#Keep  #These\nexactly"},
+    )
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert archive.read("social_caption.txt").decode() == "Editable caption"
+        assert archive.read("social_hashtags.txt").decode() == "#Keep  #These\nexactly"
+        manifest = json.loads(archive.read("manifest.json"))
+        assert not {item["file"] for item in manifest["missing"]} & {
+            "social_caption.txt", "social_hashtags.txt"
+        }
+
+
+async def test_publish_package_post_rejects_oversized_social_text(client, editor_store):
+    http, service, doc, directory = client
+    job_id = "f" * 32
+    key = editor_key("task", "clip", "clip.mp4")
+    await editor_store.create_job(key, job_id, "export", {
+        "document": doc, "preset": "reels", "draft_revision": 0,
+    })
+    claim = (await editor_store.start_job(job_id))["claim"]
+    await editor_store.finish_job(job_id, claim, "completed")
+    response = await http.post(
+        f"/tasks/task/clips/clip/editor/exports/{job_id}/publish.zip",
+        data={"caption": "x" * 2201},
+    )
+    assert response.status_code == 422
+
+
+async def test_publish_package_post_marks_blank_social_text_missing(client, editor_store):
+    http, service, doc, directory = client
+    job_id = "a" * 32
+    key = editor_key("task", "clip", "clip.mp4")
+    await editor_store.create_job(key, job_id, "export", {
+        "document": doc, "preset": "reels", "draft_revision": 0,
+    })
+    claim = (await editor_store.start_job(job_id))["claim"]
+    await editor_store.finish_job(job_id, claim, "completed")
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"export-{job_id}.mp4").write_bytes(b"exact export")
+
+    response = await http.post(
+        f"/tasks/task/clips/clip/editor/exports/{job_id}/publish.zip",
+        data={"caption": "  \n", "hashtags": ""},
+    )
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert "social_caption.txt" not in archive.namelist()
+        assert "social_hashtags.txt" not in archive.namelist()
+        missing = {item["file"] for item in json.loads(archive.read("manifest.json"))["missing"]}
+        assert {"social_caption.txt", "social_hashtags.txt"} <= missing
 
 
 async def test_srt_download_uses_only_the_saved_draft_and_phrase_groups(client):
