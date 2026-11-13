@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable, Awaitable
 import logging
 import json
+import hashlib
 import subprocess
 import uuid
 
@@ -110,6 +111,82 @@ from ..stream_source import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _select_transcript_pair(
+    checkpoint_text: Optional[str],
+    checkpoint_data: Any,
+    timed_cache_data: Any,
+    cached_text: Optional[str],
+) -> tuple[Optional[str], Optional[Dict[str, Any]], bool]:
+    """Keep transcript text paired with the timing source it came from."""
+    if checkpoint_text:
+        words = checkpoint_data.get("words") if isinstance(checkpoint_data, dict) else None
+        return checkpoint_text, checkpoint_data if words else None, bool(words)
+    if (
+        isinstance(timed_cache_data, dict)
+        and isinstance(timed_cache_data.get("text"), str)
+        and timed_cache_data.get("text")
+        and timed_cache_data.get("words")
+    ):
+        return timed_cache_data["text"], timed_cache_data, True
+    return cached_text, None, False
+
+
+def _checkpoint_source_mismatch(
+    source_type: str,
+    checkpoint_text: Optional[str],
+    recorded_fingerprint: Optional[str],
+    current_fingerprint: Optional[str],
+) -> bool:
+    return bool(
+        source_type == "youtube"
+        and checkpoint_text
+        and recorded_fingerprint
+        and current_fingerprint
+        and recorded_fingerprint != current_fingerprint
+    )
+
+
+def _analysis_cache_for_source(
+    source_type: str,
+    source_fingerprint: Optional[str],
+    url_cached_analysis: Optional[str],
+) -> Optional[str]:
+    """URL-keyed analysis has no proof it belongs to content-addressed bytes."""
+    if source_type == "youtube" and source_fingerprint:
+        return None
+    return url_cached_analysis
+
+
+def _transcript_cache_for_source(
+    source_type: str,
+    source_fingerprint: Optional[str],
+    url_cached_transcript: Optional[str],
+) -> Optional[str]:
+    """URL cache text has no proof it belongs to content-addressed bytes."""
+    if source_type == "youtube" and source_fingerprint:
+        return None
+    return url_cached_transcript
+
+
+async def _hash_source_with_cancellation(
+    path: Path,
+    should_cancel: Optional[Callable[[], Awaitable[bool]]],
+) -> str:
+    digest = hashlib.sha256()
+    source = await run_in_thread(path.open, "rb")
+    try:
+        while True:
+            chunk = await run_in_thread(source.read, 1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+            if should_cancel and await should_cancel():
+                raise Exception("Task cancelled")
+    finally:
+        await run_in_thread(source.close)
+    return digest.hexdigest()
 UPLOAD_URL_PREFIX = "upload://"
 OPENING_CONTEXT_SECONDS = 10.0
 
@@ -1332,6 +1409,13 @@ class VideoService:
         max_video_duration: Optional[int] = None,
         download_quality: Optional[str] = None,
         cached_transcript: Optional[str] = None,
+        timed_transcript_loader: Optional[
+            Callable[[str], Awaitable[Optional[Dict[str, Any]]]]
+        ] = None,
+        timed_transcript_callback: Optional[
+            Callable[[str, Dict[str, Any]], Awaitable[None]]
+        ] = None,
+        source_identity_changed: Optional[Callable[[], Awaitable[None]]] = None,
         cached_analysis_json: Optional[str] = None,
         progress_callback: Optional[Callable[[int, str, str], Awaitable[None]]] = None,
         should_cancel: Optional[Callable[[], Awaitable[bool]]] = None,
@@ -1514,15 +1598,81 @@ class VideoService:
             if progress_callback:
                 await progress_callback(30, "Generating transcript...", "processing")
 
-            transcript = checkpoint.get("transcript") or cached_transcript
-            transcript_data = checkpoint.get("transcript_data")
-            if transcript and isinstance(transcript_data, dict) and transcript_data.get("words"):
+            source_fingerprint = None
+            cached_timed_transcript_data = None
+            if source_type == "youtube" and timed_transcript_loader:
+                source_fingerprint = await _hash_source_with_cancellation(
+                    video_path, should_cancel
+                )
+                # The shared analysis cache is keyed by URL, which can outlive
+                # edits to the video. Keep task-owned checkpoint analysis,
+                # whose source fingerprint is validated below, but don't pair
+                # an unproven URL analysis with this byte-identified source.
+                cached_analysis_json = _analysis_cache_for_source(
+                    source_type, source_fingerprint, cached_analysis_json
+                )
+                cached_transcript = _transcript_cache_for_source(
+                    source_type, source_fingerprint, cached_transcript
+                )
+            checkpoint_transcript = checkpoint.get("transcript")
+            checkpoint_data = checkpoint.get("transcript_data")
+            recorded_fingerprint = checkpoint.get("source_content_fingerprint")
+            # Legacy checkpoints have no content digest. Preserve their retry
+            # contract and never let a cross-task cache replace them.
+            legacy_checkpoint = bool(checkpoint_transcript and not recorded_fingerprint)
+            source_mismatch = _checkpoint_source_mismatch(
+                source_type,
+                checkpoint_transcript,
+                recorded_fingerprint,
+                source_fingerprint,
+            )
+            if source_mismatch:
+                checkpoint_transcript = None
+                checkpoint_data = None
+                cached_transcript = None
+                cached_analysis_json = None
+                checkpoint.update({
+                    "transcript": None,
+                    "transcript_data": None,
+                    "analysis": None,
+                    "candidates": None,
+                    "segments": None,
+                    "workflow_final": None,
+                })
+                if source_identity_changed:
+                    await source_identity_changed()
+            if not checkpoint_transcript and not legacy_checkpoint and source_fingerprint and timed_transcript_loader:
+                try:
+                    cached_timed_transcript_data = await timed_transcript_loader(
+                        source_fingerprint
+                    )
+                except Exception:
+                    logger.warning("Timed transcript cache read failed; continuing without cache", exc_info=True)
+            # The text and timings are either task-checkpoint paired or read
+            # together from one content-addressed row.
+            transcript, reusable_transcript_data, cacheable_transcript = (
+                _select_transcript_pair(
+                    checkpoint_transcript,
+                    checkpoint_data,
+                    cached_timed_transcript_data,
+                    cached_transcript,
+                )
+            )
+            if legacy_checkpoint:
+                # Preserve old task retries, but an unverified legacy pair
+                # must not be written into the new content-addressed cache.
+                cacheable_transcript = False
+            if (
+                transcript
+                and isinstance(reusable_transcript_data, dict)
+                and reusable_transcript_data.get("words")
+            ):
                 # The source cache may have expired or moved to another worker.
                 # Restore the original-source timings, not a stitched timeline.
                 sidecar = video_path.with_suffix(".transcript_cache.json")
                 temporary = sidecar.with_name(f".{sidecar.name}.{uuid.uuid4().hex}.tmp")
                 try:
-                    await run_in_thread(temporary.write_text, json.dumps(transcript_data))
+                    await run_in_thread(temporary.write_text, json.dumps(reusable_transcript_data))
                     await run_in_thread(temporary.replace, sidecar)
                 finally:
                     temporary.unlink(missing_ok=True)
@@ -1539,6 +1689,7 @@ class VideoService:
                     processing_mode=processing_mode,
                     source_url=url if source_type == "youtube" else None,
                 )
+                cacheable_transcript = True
                 if checkpoint.get("analysis") or checkpoint.get("workflow_final"):
                     # Never combine new word timings with an old clip plan.
                     await save_checkpoint({
@@ -1551,7 +1702,22 @@ class VideoService:
             await save_checkpoint({
                 "transcript": transcript,
                 "transcript_data": await run_in_thread(load_cached_transcript_data, video_path),
+                **(
+                    {"source_content_fingerprint": source_fingerprint}
+                    if source_fingerprint and cacheable_transcript
+                    else {}
+                ),
             })
+            completed_transcript_data = await run_in_thread(load_cached_transcript_data, video_path)
+            if (
+                timed_transcript_callback
+                and source_fingerprint
+                and cacheable_transcript
+                and completed_transcript_data
+            ):
+                await timed_transcript_callback(
+                    source_fingerprint, completed_transcript_data
+                )
 
             # Preserve paid word timings before any analysis/cancellation path.
             try:

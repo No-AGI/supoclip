@@ -26,6 +26,10 @@ from ..repositories.source_repository import SourceRepository
 from ..repositories.clip_repository import ClipRepository
 from ..repositories.cache_repository import CacheRepository
 from ..repositories.task_checkpoint_repository import TaskCheckpointRepository, checkpoint_input_key
+from ..repositories.timed_transcript_cache_repository import (
+    TimedTranscriptCacheRepository,
+    timed_transcript_provenance,
+)
 from .video_service import VideoService
 from .clip_service import ClipEditingMixin, fill_output_starts
 from ..repositories.edit_transaction import serialized_task_edit, task_edit_transaction, TaskCancelled
@@ -572,6 +576,12 @@ class TaskService(ClipEditingMixin):
             cached_transcript = (
                 cache_entry.get("transcript_text") if cache_entry else None
             )
+            timed_cache_allowed = bool(user_id and source_type == "youtube")
+            timed_transcript_provenance_value = (
+                timed_transcript_provenance(self.config, processing_mode)
+                if timed_cache_allowed
+                else None
+            )
             analysis_entry = (
                 cache_entry
                 if analysis_cache_key == cache_key
@@ -604,6 +614,58 @@ class TaskService(ClipEditingMixin):
             async def save_checkpoint(patch: Dict[str, Any]) -> None:
                 await self.checkpoint_repo.save(self.db, task_id, input_key, patch)
                 checkpoint.update(patch)
+
+            async def source_identity_changed() -> None:
+                nonlocal cached_analysis_json
+                cached_analysis_json = None
+                await save_checkpoint({
+                    "transcript": None,
+                    "transcript_data": None,
+                    "analysis": None,
+                    "candidates": None,
+                    "segments": None,
+                    "workflow_final": None,
+                })
+                await self.task_repo.save_workflow_plan(self.db, task_id, None)
+
+            async def load_timed_transcript(source_fingerprint: str) -> Optional[Dict[str, Any]]:
+                if not timed_cache_allowed or not timed_transcript_provenance_value:
+                    return None
+                try:
+                    return await TimedTranscriptCacheRepository.get(
+                        self.db,
+                        user_id,
+                        source_fingerprint,
+                        timed_transcript_provenance_value,
+                    )
+                except Exception:
+                    logger.warning("Timed transcript cache read failed; continuing without cache", exc_info=True)
+                    try:
+                        await self.db.rollback()
+                    except Exception:
+                        logger.warning("Timed transcript cache read rollback failed", exc_info=True)
+                    return None
+
+            async def save_timed_transcript(
+                source_fingerprint: str, transcript_data: Dict[str, Any]
+            ) -> None:
+                if timed_cache_allowed and timed_transcript_provenance_value:
+                    try:
+                        await TimedTranscriptCacheRepository.save(
+                            self.db,
+                            user_id,
+                            source_fingerprint,
+                            timed_transcript_provenance_value,
+                            transcript_data,
+                        )
+                    except Exception:
+                        # Transcription has already been checkpointed. A cache
+                        # write failure must never discard paid transcript work.
+                        logger.warning("Timed transcript cache write failed", exc_info=True)
+                        try:
+                            await self.db.rollback()
+                        except Exception:
+                            logger.warning("Timed transcript cache write rollback failed", exc_info=True)
 
             await self.task_repo.update_task_runtime_metadata(
                 self.db,
@@ -666,8 +728,14 @@ class TaskService(ClipEditingMixin):
             if not spec.legacy:
                 workflow_kwargs = {
                     "workflow_spec": spec,
-                    "plan_cache": _ProcessingPlanCache(
-                        self.cache_repo, self.db, url, source_type, session_lock
+                    # processing_cache plan/outline rows are URL-keyed and
+                    # cannot prove they belong to the downloaded YouTube bytes.
+                    "plan_cache": (
+                        None
+                        if source_type == "youtube"
+                        else _ProcessingPlanCache(
+                            self.cache_repo, self.db, url, source_type, session_lock
+                        )
                     ),
                     "outline_cache_key": outline_cache_key,
                     "cleanup_settings": normalized_cleanup_settings,
@@ -688,6 +756,9 @@ class TaskService(ClipEditingMixin):
                 max_video_duration=max_video_duration,
                 download_quality=download_quality,
                 cached_transcript=cached_transcript,
+                timed_transcript_loader=load_timed_transcript,
+                timed_transcript_callback=save_timed_transcript,
+                source_identity_changed=source_identity_changed,
                 cached_analysis_json=cached_analysis_json,
                 progress_callback=update_progress,
                 should_cancel=should_cancel,
