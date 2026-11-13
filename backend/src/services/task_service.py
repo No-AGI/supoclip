@@ -92,11 +92,15 @@ class _ProcessingPlanCache:
         self._lock = session_lock or asyncio.Lock()
 
     async def load(self, key: str) -> Optional[str]:
+        if self.source_type == "youtube":
+            return None
         async with self._lock:
             row = await self.cache_repo.get_cache(self.db, key)
         return row.get("analysis_json") if row else None
 
     async def store(self, key: str, payload: str) -> None:
+        if self.source_type == "youtube":
+            return  # Task checkpoints preserve these plans instead of URL rows.
         async with self._lock:
             await self.cache_repo.upsert_cache(
                 self.db,
@@ -522,6 +526,7 @@ class TaskService(ClipEditingMixin):
         # For the task_completed / task_failed product events.
         started_at: Optional[datetime] = None
         cache_hit: Optional[bool] = None
+        completion_committed = False
 
         async def check_cancelled():
             if should_cancel and await should_cancel():
@@ -617,6 +622,12 @@ class TaskService(ClipEditingMixin):
 
             async def source_identity_changed() -> None:
                 nonlocal cached_analysis_json
+                # Preserve edited/exported clips rather than mixing source versions.
+                if prior_outputs:
+                    raise ValueError(
+                        "The source content changed. Create a new task for this source; "
+                        "your previously completed clips are kept."
+                    )
                 cached_analysis_json = None
                 await save_checkpoint({
                     "transcript": None,
@@ -730,12 +741,8 @@ class TaskService(ClipEditingMixin):
                     "workflow_spec": spec,
                     # processing_cache plan/outline rows are URL-keyed and
                     # cannot prove they belong to the downloaded YouTube bytes.
-                    "plan_cache": (
-                        None
-                        if source_type == "youtube"
-                        else _ProcessingPlanCache(
-                            self.cache_repo, self.db, url, source_type, session_lock
-                        )
+                    "plan_cache": _ProcessingPlanCache(
+                        self.cache_repo, self.db, url, source_type, session_lock
                     ),
                     "outline_cache_key": outline_cache_key,
                     "cleanup_settings": normalized_cleanup_settings,
@@ -1037,7 +1044,7 @@ class TaskService(ClipEditingMixin):
             )
             if completed is False:
                 raise TaskCancelled()
-
+            completion_committed = True
             if progress_callback:
                 await progress_callback(100, "Complete!", "completed")
 
@@ -1089,6 +1096,17 @@ class TaskService(ClipEditingMixin):
             }
 
         except Exception as e:
+            if completion_committed:
+                # A post-commit side effect must never discard published clips.
+                logger.exception("Post-completion side effect failed for task %s", task_id)
+                await self.db.rollback()
+                return {
+                    "task_id": task_id,
+                    "clips_count": len(clip_ids),
+                    "segments": result["segments"],
+                    "summary": result.get("summary"),
+                    "key_topics": result.get("key_topics"),
+                }
             logger.error(f"Error processing task {task_id}: {e}")
             # Clear failed writes before recording the terminal error state.
             await self.db.rollback()

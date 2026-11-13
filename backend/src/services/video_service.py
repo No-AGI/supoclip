@@ -140,8 +140,7 @@ def _checkpoint_source_mismatch(
     current_fingerprint: Optional[str],
 ) -> bool:
     return bool(
-        source_type == "youtube"
-        and checkpoint_text
+        checkpoint_text
         and recorded_fingerprint
         and current_fingerprint
         and recorded_fingerprint != current_fingerprint
@@ -1600,10 +1599,11 @@ class VideoService:
 
             source_fingerprint = None
             cached_timed_transcript_data = None
-            if source_type == "youtube" and timed_transcript_loader:
+            if checkpoint_callback or (source_type == "youtube" and timed_transcript_loader):
                 source_fingerprint = await _hash_source_with_cancellation(
                     video_path, should_cancel
                 )
+            if source_type == "youtube" and timed_transcript_loader:
                 # The shared analysis cache is keyed by URL, which can outlive
                 # edits to the video. Keep task-owned checkpoint analysis,
                 # whose source fingerprint is validated below, but don't pair
@@ -1613,6 +1613,16 @@ class VideoService:
                 )
                 cached_transcript = _transcript_cache_for_source(
                     source_type, source_fingerprint, cached_transcript
+                )
+            from ..repositories.timed_transcript_cache_repository import timed_transcript_provenance
+            current_provenance = timed_transcript_provenance(runtime_config, processing_mode)
+            recorded_provenance = checkpoint.get("transcript_provenance") or (
+                checkpoint.get("transcription_job") or {}
+            ).get("provenance")
+            if recorded_provenance and recorded_provenance != current_provenance:
+                raise ValueError(
+                    "The transcription settings changed. Restore the original settings "
+                    "or create a new task; saved progress is kept."
                 )
             checkpoint_transcript = checkpoint.get("transcript")
             checkpoint_data = checkpoint.get("transcript_data")
@@ -1627,20 +1637,11 @@ class VideoService:
                 source_fingerprint,
             )
             if source_mismatch:
-                checkpoint_transcript = None
-                checkpoint_data = None
-                cached_transcript = None
-                cached_analysis_json = None
-                checkpoint.update({
-                    "transcript": None,
-                    "transcript_data": None,
-                    "analysis": None,
-                    "candidates": None,
-                    "segments": None,
-                    "workflow_final": None,
-                })
-                if source_identity_changed:
-                    await source_identity_changed()
+                # Never overwrite paid progress or attach old sidecars to new bytes.
+                raise ValueError(
+                    "The source content changed. Create a new task for this source; "
+                    "saved progress is kept."
+                )
             if not checkpoint_transcript and not legacy_checkpoint and source_fingerprint and timed_transcript_loader:
                 try:
                     cached_timed_transcript_data = await timed_transcript_loader(
@@ -1684,11 +1685,47 @@ class VideoService:
                 and not (load_cached_transcript_data(video_path) or {}).get("words")
             )
             if not transcript or needs_word_timings:
-                transcript = await VideoService.generate_transcript(
-                    video_path,
-                    processing_mode=processing_mode,
-                    source_url=url if source_type == "youtube" else None,
+                from ..media.transcription import assemblyai_job_context
+                from ..repositories.timed_transcript_cache_repository import timed_transcript_provenance
+                loop = asyncio.get_running_loop()
+                # Persist identity before submission, including jobs that never
+                # reached the completed-transcript checkpoint.
+                job_fingerprint = source_fingerprint
+                if checkpoint_callback and runtime_config.transcription_provider == "assemblyai":
+                    job_fingerprint = job_fingerprint or await _hash_source_with_cancellation(
+                        video_path, should_cancel
+                    )
+                job_provenance = timed_transcript_provenance(runtime_config, processing_mode)
+                provider_job = checkpoint.get("transcription_job")
+                if provider_job and (
+                    provider_job.get("source_fingerprint") != job_fingerprint
+                    or provider_job.get("provenance") != job_provenance
+                ):
+                    raise ValueError(
+                        "The source or transcription settings changed during a paid job. "
+                        "Restore the original settings or create a new task."
+                    )
+
+                def persist_provider_job(job):
+                    # The AsyncSession stays on its owning event-loop thread.
+                    asyncio.run_coroutine_threadsafe(save_checkpoint({
+                        "transcription_job": {
+                            **job, "source_fingerprint": job_fingerprint,
+                            "provenance": job_provenance,
+                        },
+                    }), loop).result()
+
+                token = assemblyai_job_context.set(
+                    (provider_job, persist_provider_job) if checkpoint_callback else None
                 )
+                try:
+                    transcript = await VideoService.generate_transcript(
+                        video_path,
+                        processing_mode=processing_mode,
+                        source_url=url if source_type == "youtube" else None,
+                    )
+                finally:
+                    assemblyai_job_context.reset(token)
                 cacheable_transcript = True
                 if checkpoint.get("analysis") or checkpoint.get("workflow_final"):
                     # Never combine new word timings with an old clip plan.
@@ -1701,6 +1738,7 @@ class VideoService:
             # can fail. The DB copy also repairs an absent word-timing sidecar.
             await save_checkpoint({
                 "transcript": transcript,
+                "transcript_provenance": current_provenance if not legacy_checkpoint else recorded_provenance,
                 "transcript_data": await run_in_thread(load_cached_transcript_data, video_path),
                 **(
                     {"source_content_fingerprint": source_fingerprint}

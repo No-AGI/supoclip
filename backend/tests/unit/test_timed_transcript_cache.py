@@ -14,7 +14,6 @@ from src.services.video_service import (
     _checkpoint_source_mismatch,
     _select_transcript_pair,
     _transcript_cache_for_source,
-    _transcript_cache_for_source,
 )
 
 
@@ -84,7 +83,7 @@ def test_timed_cache_uses_its_own_text_and_words_as_a_pair():
 def test_legacy_checkpoint_is_preserved_and_fingerprinted_mismatch_is_detected():
     assert not _checkpoint_source_mismatch("youtube", "legacy text", None, "new-hash")
     assert _checkpoint_source_mismatch("youtube", "saved text", "old-hash", "new-hash")
-    assert not _checkpoint_source_mismatch("twitch", "saved text", "old-hash", "new-hash")
+    assert _checkpoint_source_mismatch("twitch", "saved text", "old-hash", "new-hash")
 
 
 def test_content_addressed_youtube_source_does_not_use_unproven_url_analysis():
@@ -147,8 +146,6 @@ async def test_cache_save_refuses_transcripts_without_timing_words():
     )
     db.execute.assert_not_awaited()
 
-
-
 @pytest.mark.asyncio
 async def test_cache_save_rejects_invalid_or_unordered_word_timing():
     db = AsyncMock()
@@ -167,4 +164,3 @@ async def test_cache_save_rejects_invalid_or_unordered_word_timing():
         },
     )
     db.execute.assert_not_awaited()
-

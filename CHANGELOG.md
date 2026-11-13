@@ -6,6 +6,7 @@ Add a line here when a pull request changes something a user can see. Use **New*
 
 ## 2026-11-13
 
+- **Fixed:** Long-task retries keep the gaming profile, reject changed sources with saved clips, avoid reusing interrupted audio, and preserve completed output when notifications fail. Paid transcription jobs retain their provider ID for safe recovery; an uncertain submission stops instead of automatically charging again. Changed inputs cannot hide saved paid jobs, completed transcripts validate their source and settings, and YouTube workflows can plan without trusting URL-only outline caches. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 - **Fixed:** Local installations now apply the missing Stripe account schema required for sign-in and administration. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 - **Improved:** Add your own caption and unchanged hashtags to a publication ZIP without generating text. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 - **Improved:** Navigate admin settings, users, tasks and additional tools by section. ([#1](https://github.com/No-AGI/supoclip/pull/1))

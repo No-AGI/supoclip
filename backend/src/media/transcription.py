@@ -11,6 +11,12 @@ import httpx
 import json
 import re
 import time
+import uuid
+from contextvars import ContextVar
+from types import SimpleNamespace
+
+# The async pipeline supplies a task-private PostgreSQL checkpoint bridge.
+assemblyai_job_context = ContextVar("assemblyai_job_context", default=None)
 from .common import (
     ANALYSIS_LONG_UTTERANCE_MAX_DURATION_MS,
     ANALYSIS_LONG_UTTERANCE_MAX_WORDS,
@@ -39,6 +45,8 @@ def _prepare_audio_for_transcription(video_path: Path) -> Path:
 
     # Transcribe the same track the renderer cuts, not ffmpeg's implicit pick.
     audio_stream = select_audio_stream_index(video_path)
+    # Only a successful extraction may publish the reusable audio path.
+    temporary = audio_path.with_name(f".{audio_path.stem}.{uuid.uuid4().hex}.mp3")
     command = [
         "ffmpeg",
         "-y",
@@ -52,28 +60,20 @@ def _prepare_audio_for_transcription(video_path: Path) -> Path:
         "16000",
         "-b:a",
         "64k",
-        str(audio_path),
+        str(temporary),
     ]
     try:
         result = run_ffmpeg_command(command, timeout=900)
+        if result.returncode != 0 or not temporary.exists() or temporary.stat().st_size == 0:
+            logger.warning("Failed to extract transcription audio with ffmpeg; falling back to source video")
+            return video_path
+        temporary.replace(audio_path)
+        return audio_path
     except FileNotFoundError:
-        logger.warning(
-            "ffmpeg is not available; falling back to source video for transcription"
-        )
+        logger.warning("ffmpeg is not available; falling back to source video for transcription")
         return video_path
-
-    if result.returncode != 0 or not audio_path.exists() or audio_path.stat().st_size == 0:
-        logger.warning(
-            "Failed to extract transcription audio with ffmpeg; falling back to source video"
-        )
-        return video_path
-
-    logger.info(
-        "Prepared transcription audio: %s (%.2f MB)",
-        audio_path,
-        audio_path.stat().st_size / (1024 * 1024),
-    )
-    return audio_path
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _submit_and_wait_for_assemblyai_transcript(
@@ -81,9 +81,23 @@ def _submit_and_wait_for_assemblyai_transcript(
     media_path: Path,
     config_obj,
     timeout_seconds: int,
+    *,
+    job_state=None,
+    job_callback=None,
 ):
     """Submit a transcript job and poll with a total timeout."""
-    # Uploads are safe to retry: they do not create a paid transcript. Keep the
+    context = assemblyai_job_context.get()
+    if context is not None and job_callback is None:
+        job_state, job_callback = context
+    if job_callback and job_state:
+        if job_state.get("state") != "submitted" or not job_state.get("id"):
+            raise RuntimeError(
+                "Transcription submission outcome is unknown. Verify the provider job "
+                "before retrying; automatic paid resubmission is blocked."
+            )
+        submitted = SimpleNamespace(id=job_state["id"], _client=transcriber._client)
+        return _poll_assemblyai_transcript(submitted, timeout_seconds)
+    # Uploads do not create paid transcript jobs.
     # transcript POST outside this loop because a timeout may hide its success.
     for attempt in range(1, 4):
         try:
@@ -101,10 +115,19 @@ def _submit_and_wait_for_assemblyai_transcript(
                 ) from None
             logger.warning("AssemblyAI audio upload failed (HTTP %s); retrying upload (%s/3)", status, attempt)
             time.sleep(2.0 ** attempt)
+    if job_callback:
+        # Commit intent BEFORE the paid POST. Lost response must fail closed.
+        job_callback({"state": "submitting"})
     submitted = transcriber.submit(audio_url, config=config_obj)
     if not submitted.id:
         raise RuntimeError("AssemblyAI did not return a transcript ID")
 
+    if job_callback:
+        job_callback({"state": "submitted", "id": submitted.id})
+    return _poll_assemblyai_transcript(submitted, timeout_seconds)
+
+
+def _poll_assemblyai_transcript(submitted, timeout_seconds):
     logger.info("AssemblyAI transcript submitted: %s", submitted.id)
     deadline = time.monotonic() + timeout_seconds
     next_log_at = 0.0

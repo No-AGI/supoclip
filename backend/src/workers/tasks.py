@@ -83,6 +83,7 @@ async def process_video_task(
         add_subtitles,
         cleanup_settings,
         clip_length,
+        clip_profile,
     )
 
     # Create progress tracker
