@@ -246,6 +246,13 @@ async def get_performance(request: Request, db: AsyncSession = Depends(get_db)):
     return await _service(request, db).get_performance_summary(user_id)
 
 
+@router.get("/performance/clips")
+async def get_clip_level_performance(request: Request, db: AsyncSession = Depends(get_db)):
+    """Latest social metrics per source clip and platform for the signed-in user."""
+    user_id = await _allowed_user_id(request, db)
+    return {"clips": await _service(request, db).get_clip_level_performance(user_id)}
+
+
 @router.get("/performance/timeseries")
 async def get_views_timeseries(
     request: Request, db: AsyncSession = Depends(get_db), days: int = 30
