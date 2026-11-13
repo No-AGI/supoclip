@@ -1,4 +1,4 @@
-{
+{"sections":{"overview":"Overview","ai":"AI / providers","tasks":"Tasks","users":"Users","additional":"Additional","navigation":"Admin page sections"},
   "title": "Admin Dashboard",
   "subtitle": "Manage users and monitor overall platform activity.",
   "manageAnnouncements": "Manage announcements",
