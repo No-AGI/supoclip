@@ -4,6 +4,7 @@ import { getLocale, getTranslations } from "next-intl/server";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { AdminUserToggle } from "@/components/admin/admin-user-toggle";
+import { AdminLiveStats } from "@/components/admin/admin-live-stats";
 import { LegacyHdToggle } from "@/components/admin/legacy-hd-toggle";
 import { FeatureFlagSwitch } from "@/components/admin/feature-flag-switch";
 import { formatBillingPlanName } from "@/lib/billing-plans";
@@ -108,13 +109,17 @@ export default async function AdminPage({
     }
   }
 
+  // Timestamp of this server render, used as the live-stats "last updated" baseline.
+  const renderedAt = new Date().toISOString();
+
   const [
     runtimeSettings,
     totalUsers,
     adminUsers,
     totalTasks,
     completedTasks,
-    activeTasks,
+    queuedTasks,
+    processingTasks,
     recentUsers,
     processingNow,
     recentGenerations,
@@ -129,7 +134,9 @@ export default async function AdminPage({
     prisma.user.count({ where: { is_admin: true } }),
     prisma.task.count(),
     prisma.task.count({ where: { status: "completed" } }),
-    prisma.task.count({ where: { status: { in: ACTIVE_TASK_STATUSES } } }),
+    // "queued" covers both waiting states (queued + pending); "processing" is counted alone so the two never overlap.
+    prisma.task.count({ where: { status: { in: ["queued", "pending"] } } }),
+    prisma.task.count({ where: { status: "processing" } }),
     prisma.user.findMany({
       where: userQuery
         ? {
@@ -274,14 +281,6 @@ export default async function AdminPage({
 
   const generationCountByUser = new Map(tasksByUser.map((item) => [item.user_id, item._count._all]));
 
-  const stats = [
-    { label: t("stats.users"), value: totalUsers },
-    { label: t("stats.admins"), value: adminUsers },
-    { label: t("stats.tasks"), value: totalTasks },
-    { label: t("stats.completed"), value: completedTasks },
-    { label: t("stats.processing"), value: activeTasks, live: activeTasks > 0 },
-  ];
-
   return (
     <main className="mx-auto w-full max-w-7xl space-y-6 px-4 py-8 sm:px-8 md:py-10">
       <div>
@@ -290,16 +289,17 @@ export default async function AdminPage({
         <Link href="/admin/announcements" className="mt-3 inline-block text-sm font-medium text-brand underline-offset-4 hover:underline">{t("manageAnnouncements")}</Link>
       </div>
 
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
-        {stats.map((stat) => (
-          <div key={stat.label} className={cn("rounded-2xl border bg-background p-4", stat.live && "border-brand/40 bg-brand-soft")}>
-            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              {stat.live && <span className="size-1.5 rounded-full bg-brand motion-safe:animate-pulse" />}{stat.label}
-            </p>
-            <p className="mt-1 font-display text-3xl font-bold tabular-nums">{stat.value}</p>
-          </div>
-        ))}
-      </section>
+      <AdminLiveStats
+        initialStats={{
+          users: totalUsers,
+          admins: adminUsers,
+          tasks: totalTasks,
+          completed: completedTasks,
+          processing: processingTasks,
+          queued: queuedTasks,
+        }}
+        initialUpdatedAt={renderedAt}
+      />
 
       <div id="feature-flags" className="scroll-mt-6">
         <Panel title={t("flags.title")} description={t("flags.description")}>

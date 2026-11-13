@@ -24,6 +24,7 @@ import hashlib
 import time
 from ...utils.async_helpers import run_in_thread
 from ... import clip_archive
+from ...clip_naming import clip_download_filename, clip_position
 
 from ...repositories.generation_allowance_guard import generation_allowance_guard, GenerationAllowanceBusy
 from ...repositories.task_run_guard import task_run_guard, TaskRunBusy
@@ -899,9 +900,16 @@ async def get_shared_clip_file(
     if not clip or clip.get("task_id") != task_id:
         raise HTTPException(status_code=404, detail="Clip not found")
 
+    task = await task_service.task_repo.get_task_by_id(db, task_id)
+    filename = clip["filename"]
+    if download:
+        clips = await task_service.clip_repo.get_clips_by_task(db, task_id)
+        filename = clip_download_filename(
+            clip, task.get("source_title"), position=clip_position(clip, clips)
+        )
     if is_s3(clip["file_path"]):
         await db.close()
-        url = await run_in_thread(MediaStorage().signed_url, clip["file_path"], clip["filename"], attachment=download)
+        url = await run_in_thread(MediaStorage().signed_url, clip["file_path"], filename, attachment=download)
         return RedirectResponse(url, status_code=307, headers={"Cache-Control": "private, no-store"})
     clip_path = Path(clip["file_path"])
     if not clip_path.exists():
@@ -910,7 +918,7 @@ async def get_shared_clip_file(
     return FileResponse(
         path=str(clip_path),
         media_type="video/mp4",
-        filename=clip["filename"],
+        filename=filename,
         content_disposition_type="attachment" if download else "inline",
         headers={"Cache-Control": "private, no-store"},
     )
@@ -1171,10 +1179,14 @@ async def get_clip_file(
         clip = await task_service.clip_repo.get_clip_by_id(db, clip_id)
         if not clip or clip.get("task_id") != task_id:
             raise HTTPException(status_code=404, detail="Clip not found")
-
+        filename = clip["filename"]
+        if download:
+            clips = await task_service.clip_repo.get_clips_by_task(db, task_id)
+            position = clip_position(clip, clips)
+            filename = clip_download_filename(clip, task.get("source_title"), position=position)
         if is_s3(clip["file_path"]):
             await db.close()
-            url = await run_in_thread(MediaStorage().signed_url, clip["file_path"], clip["filename"], attachment=download)
+            url = await run_in_thread(MediaStorage().signed_url, clip["file_path"], filename, attachment=download)
             if download:
                 capture_clip_export(request, task, surface="original", format="original")
             return RedirectResponse(url, status_code=307, headers={"Cache-Control": "private, no-store"})
@@ -1195,7 +1207,7 @@ async def get_clip_file(
         return FileResponse(
             path=str(clip_path),
             media_type="video/mp4",
-            filename=clip["filename"],
+            filename=filename,
             content_disposition_type="attachment" if download else "inline",
             headers={"Cache-Control": "private, no-store"},
         )
@@ -1216,7 +1228,7 @@ async def _prepare_clip_archive(request: Request, db: AsyncSession, task_id: str
     await db.close()
     try:
         entries = await run_in_thread(
-            clip_archive.resolve_entries, clips, MediaStorage(), task.get("workflow")
+            clip_archive.resolve_entries, clips, MediaStorage(), task.get("workflow"), task.get("source_title")
         )
     except STORAGE_ERRORS:
         logger.exception("Could not list clip files for task %s", task_id)
@@ -1545,6 +1557,8 @@ async def export_clip(
         clip = await task_service.clip_repo.get_clip_by_id(db, clip_id)
         if not clip or clip.get("task_id") != task_id:
             raise HTTPException(status_code=404, detail="Clip not found")
+        clips = await task_service.clip_repo.get_clips_by_task(db, task_id)
+        position = clip_position(clip, clips)
 
         from pathlib import Path
 
@@ -1561,7 +1575,9 @@ async def export_clip(
             preset_name,
         )
 
-        download_name = f"{Path(clip['filename']).stem}_{preset_name}.mp4"
+        download_name = clip_download_filename(
+            clip, task.get("source_title"), position=position, preset=preset_name
+        )
         capture_clip_export(request, task, surface="preset", format=preset_name)
         return FileResponse(
             path=str(output_path), media_type="video/mp4", filename=download_name,

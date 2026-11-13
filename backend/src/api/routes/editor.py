@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...analytics import capture_clip_export
+from ...clip_naming import clip_download_filename, clip_position
 from ...database import get_db
 from ...editor_document import EditDocument, RevisionConflict
 from ...editor_state import (
@@ -34,14 +35,20 @@ from .tasks import _require_task_owner, _read_json_object
 router = APIRouter(prefix="/tasks", tags=["editor"])
 
 
-async def owned_context(request, db, task_id, clip_id):
+async def owned_context(request, db, task_id, clip_id, *, include_download_position=False):
     service = TaskService(db)
     task = await _require_task_owner(request, service, db, task_id)
     clip = await service.clip_repo.get_clip_by_id(db, clip_id)
     if not clip or clip["task_id"] != task_id:
         raise HTTPException(404, "Clip not found")
+    download_position = None
+    if include_download_position:
+        clips = await service.clip_repo.get_clips_by_task(db, task_id)
+        download_position = clip_position(clip, clips)
     await db.close()
     session = await open_session(service.config.temp_dir, task_id, clip)
+    if download_position is not None:
+        clip = {**clip, "_download_position": download_position}
     return task, clip, session
 
 
@@ -283,12 +290,17 @@ async def export_file(
     request: Request,
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
-    task, _, session = await owned_context(request, db, task_id, clip_id)
+    task, clip, session = await owned_context(
+        request, db, task_id, clip_id, include_download_position=True
+    )
     job = await _job(session, job_id)
     if job["status"] != "completed":
         raise HTTPException(409, "Export is not ready")
     output = session.directory / f"export-{job_id}.mp4"
-    filename = f"supoclip-{clip_id[:8]}-{job_id[:6]}.mp4"
+    filename = clip_download_filename(
+        clip, task.get("source_title"),
+        position=clip.get("_download_position"), preset="editor",
+    )
     redirect = await _stored_media(MediaStorage(), session, output.name, filename, attachment=True)
     if redirect is not None:
         capture_clip_export(request, task, surface="editor", format="editor")

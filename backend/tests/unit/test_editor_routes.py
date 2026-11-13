@@ -14,10 +14,13 @@ from src.editor_state import editor_key
 @pytest.fixture
 async def client(tmp_path, monkeypatch, editor_store):
     task = {"id": "task", "user_id": "owner", "status": "completed"}
-    clip = {"id": "clip", "task_id": "task", "filename": "clip.mp4", "file_path": str(tmp_path / "clip.mp4")}
+    clip = {"id": "clip", "task_id": "task", "clip_order": 1, "filename": "clip.mp4", "file_path": str(tmp_path / "clip.mp4")}
     service = SimpleNamespace(
         task_repo=SimpleNamespace(get_task_by_id=AsyncMock(return_value=task)),
-        clip_repo=SimpleNamespace(get_clip_by_id=AsyncMock(return_value=clip)),
+        clip_repo=SimpleNamespace(
+            get_clip_by_id=AsyncMock(return_value=clip),
+            get_clips_by_task=AsyncMock(return_value=[clip]),
+        ),
         config=SimpleNamespace(temp_dir=str(tmp_path)),
     )
     monkeypatch.setattr(editor, "TaskService", lambda db: service)
@@ -221,6 +224,10 @@ async def test_local_preview_and_export_survive_storage_outage(client, monkeypat
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "clean.mp4").write_bytes(b"local preview")
     job = "f" * 32
+    service.clip_repo.get_clips_by_task.return_value = [
+        {"id": "deleted-before-this-clip"},
+        service.clip_repo.get_clip_by_id.return_value,
+    ]
     key = editor_key("task", "clip", "clip.mp4")
     await editor_store.create_job(key, job, "export", {"document": doc, "preset": "tiktok"})
     claim = (await editor_store.start_job(job))["claim"]
@@ -234,6 +241,7 @@ async def test_local_preview_and_export_survive_storage_outage(client, monkeypat
     assert preview.status_code == export.status_code == 200
     assert preview.content == b"local preview"
     assert export.content == b"local export"
+    assert export.headers["content-disposition"] == "attachment; filename*=utf-8''clip_02%20-%20Clip_editor.mp4"
 
 
 async def test_old_drafts_regain_template_animation_and_hook_title(client, editor_store):

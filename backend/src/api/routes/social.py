@@ -199,9 +199,13 @@ async def generate_caption(request: Request, db: AsyncSession = Depends(get_db))
     for field in ("task_id", "clip_id", "provider"):
         if not isinstance(body.get(field), str) or not body[field].strip():
             raise HTTPException(status_code=422, detail=f"{field} is required")
+    target_language = body.get("target_language")
+    if target_language not in (None, "Russian"):
+        raise HTTPException(status_code=422, detail="target_language must be Russian or null")
     try:
         return await _service(request, db).generate_caption(
-            user_id, task_id=body["task_id"], clip_id=body["clip_id"], provider=body["provider"]
+            user_id, task_id=body["task_id"], clip_id=body["clip_id"], provider=body["provider"],
+            target_language=target_language,
         )
     except SocialError as exc:
         raise _http_error(exc)
