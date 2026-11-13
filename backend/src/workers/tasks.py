@@ -31,6 +31,7 @@ async def process_video_task(
     add_subtitles: bool = True,
     cleanup_settings: Dict[str, Any] | None = None,
     clip_length: str = "auto",
+    clip_profile: str = "general",
 ) -> Dict[str, Any]:
     """
     Background worker task to process a video.
@@ -82,6 +83,7 @@ async def process_video_task(
         add_subtitles,
         cleanup_settings,
         clip_length,
+        clip_profile,
     )
 
     # Create progress tracker
@@ -152,6 +154,7 @@ async def process_video_task(
                 clip_ready_callback=clip_ready_callback,
                 cleanup_settings=cleanup_settings,
                 clip_length=clip_length,
+                clip_profile=clip_profile,
             )
 
             logger.info(f"Task {task_id} completed successfully")

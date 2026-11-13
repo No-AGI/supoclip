@@ -81,6 +81,8 @@
     "applying": "Wird angewendet…",
     "applyAll": "Auf alle Clips anwenden",
     "hookTitle": "Hook-Titel",
+    "localizedHookTitle": "Lokalisierter Hook-Titel",
+    "restoreHookTitle": "Quelltitel wiederherstellen",
     "hookDescription": "Ziehe die Kanten des Titels in der Zeitleiste, um die Anzeigedauer festzulegen. Leer lassen, um ihn zu entfernen.",
     "hookPlaceholder": "Kein Hook-Titel",
     "transcript": "Transkript",

@@ -430,6 +430,7 @@ def upgrade_document(
         **document,
         "captions": captions,
         "hookTitle": document.get("hookTitle", (burned_hook_title(clip) or "")[:200]),
+        "localizedHookTitle": document.get("localizedHookTitle"),
         # Drafts saved before the editor had B-roll pick up the generated clip's.
         "broll": document.get(
             "broll",
@@ -728,6 +729,7 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
                             clip_height,
                         ),
                         "hookTitle": (burned_hook_title(clip) or "")[:200],
+                        "localizedHookTitle": None,
                         "broll": editor_broll_from_placements(broll_placements, duration),
                         "words": [
                             {
@@ -931,6 +933,7 @@ async def combine_editor(ctx, task_id: str, clip_id: str, filename: str, job_id:
             "captionTransforms": all_caption_transforms,
             # The first clip's headline doesn't describe the combination.
             "hookTitle": "",
+            "localizedHookTitle": None,
         }
         document = EditDocument.model_validate(initial).validate_duration(cursor)
         with tempfile.TemporaryDirectory(prefix="combine_", dir=directory) as temp:

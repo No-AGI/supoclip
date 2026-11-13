@@ -1180,6 +1180,76 @@ class SocialRepository:
         )
         return [SocialRepository.serialize_post(row) for row in result.fetchall()]
 
+    @staticmethod
+    async def get_clip_level_performance(db: AsyncSession, user_id: str) -> List[Dict[str, Any]]:
+        """Aggregate each post's latest complete snapshot by source clip and platform."""
+        result = await db.execute(
+            text(
+                """
+                WITH latest AS (
+                    SELECT m.post_id, m.captured_at, m.views, m.likes, m.comments,
+                           m.shares, m.saves,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY m.post_id
+                               ORDER BY m.captured_at DESC NULLS LAST, m.id DESC
+                           ) AS snapshot_rank
+                    FROM social_post_metrics m
+                    JOIN social_posts candidate ON candidate.id = m.post_id
+                      AND candidate.user_id = :user_id AND candidate.status = 'published'
+                    JOIN generated_clips candidate_clip
+                      ON candidate_clip.id = candidate.clip_id
+                     AND candidate_clip.task_id = candidate.task_id
+                    JOIN tasks candidate_task ON candidate_task.id = candidate_clip.task_id
+                      AND candidate_task.user_id = candidate.user_id
+                ), snapshots AS (
+                    SELECT p.clip_id, p.provider, p.id AS post_id,
+                           latest.post_id AS snapshot_post_id,
+                           latest.views, latest.likes, latest.comments, latest.shares,
+                           latest.saves, latest.captured_at,
+                           COALESCE(c.hook_title, p.hook_title, p.title) AS title, c.clip_order
+                    FROM social_posts p
+                    JOIN generated_clips c ON c.id = p.clip_id AND c.task_id = p.task_id
+                    JOIN tasks t ON t.id = c.task_id AND t.user_id = p.user_id
+                    LEFT JOIN latest ON latest.post_id = p.id AND latest.snapshot_rank = 1
+                    WHERE p.user_id = :user_id AND p.status = 'published'
+                )
+                SELECT clip_id, provider, MAX(clip_order) AS clip_order,
+                       MAX(title) AS title, COUNT(*) AS posts,
+                       COUNT(snapshot_post_id) AS measured_posts,
+                       CASE WHEN COUNT(views) = COUNT(*) THEN SUM(views) END AS views,
+                       CASE WHEN COUNT(likes) = COUNT(*) THEN SUM(likes) END AS likes,
+                       CASE WHEN COUNT(comments) = COUNT(*) THEN SUM(comments) END AS comments,
+                       CASE WHEN COUNT(shares) = COUNT(*) THEN SUM(shares) END AS shares,
+                       CASE WHEN COUNT(saves) = COUNT(*) THEN SUM(saves) END AS saves,
+                       MIN(captured_at) AS snapshot_from,
+                       MAX(captured_at) AS snapshot_through
+                FROM snapshots
+                GROUP BY clip_id, provider
+                HAVING COUNT(snapshot_post_id) > 0
+                ORDER BY clip_order, clip_id, provider
+                """
+            ),
+            {"user_id": user_id},
+        )
+        return [
+            {
+                "clip_id": row.clip_id,
+                "clip_order": int(row.clip_order) if row.clip_order is not None else None,
+                "title": row.title,
+                "provider": row.provider,
+                "posts": int(row.posts or 0),
+                "measured_posts": int(row.measured_posts or 0),
+                "views": _to_float(row.views),
+                "likes": _to_float(row.likes),
+                "comments": _to_float(row.comments),
+                "shares": _to_float(row.shares),
+                "saves": _to_float(row.saves),
+                "snapshot_from": _iso(row.snapshot_from),
+                "snapshot_through": _iso(row.snapshot_through),
+            }
+            for row in result.fetchall()
+        ]
+
 
 def _to_float(value: Any) -> Optional[float]:
     if value is None:

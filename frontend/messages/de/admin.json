@@ -1,4 +1,4 @@
-{
+{"sections":{"overview":"Übersicht","ai":"KI / Anbieter","tasks":"Aufgaben","users":"Nutzer","additional":"Weitere","navigation":"Admin-Bereiche"},
   "title": "Admin-Dashboard",
   "subtitle": "Verwalte Nutzer und behalte die Aktivität der Plattform im Blick.",
   "manageAnnouncements": "Ankündigungen verwalten",
@@ -190,6 +190,22 @@
     "result": "Ergebnis",
     "ok": "Geantwortet",
     "answeredBy": "Geantwortet von",
-    "testFailed": "Das Modell konnte nicht geprüft werden"
+    "testFailed": "Das Modell konnte nicht geprüft werden",
+    "connectionsTitle": "Eigene LLM-Verbindungen",
+    "connectionsDescription": "Füge einen OpenAI-kompatiblen Anbieter hinzu. Schlüssel werden sicher gespeichert und nicht erneut angezeigt.",
+    "connectionsLoadFailed": "Verbindungen konnten nicht geladen werden",
+    "connectionSaveFailed": "Verbindung konnte nicht gespeichert werden",
+    "connectionDeleteFailed": "Verbindung konnte nicht gelöscht werden",
+    "connectionTestFailed": "Verbindungstest fehlgeschlagen",
+    "connectionPreset": "Anbietervorlage",
+    "connectionCustom": "Eigene URL",
+    "connectionName": "Verbindungsname",
+    "connectionBaseUrl": "Basis-URL",
+    "connectionModel": "Modell",
+    "connectionApiKey": "API-Schlüssel",
+    "connectionSave": "Verbindung speichern",
+    "connectionTest": "Verbindung testen",
+    "connectionTestOk": "Verbindung erfolgreich in {seconds}s",
+    "connectionAddFallback": "Zur Ausweichkette hinzufügen"
   }
 }

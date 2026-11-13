@@ -4,6 +4,22 @@ What changed in SupoClip for people using the product. Newest dates are first.
 
 Add a line here when a pull request changes something a user can see. Use **New**, **Improved**, **Fixed**, or **Under the hood**, describe the change in plain language, and link the pull request. Skip internal-only work, or fold it into one **Under the hood** line. Do not include customer names, email addresses, user IDs, or anything else private.
 
+## 2026-11-13
+
+- **Fixed:** Long-task retries keep the gaming profile, reject changed sources with saved clips, avoid reusing interrupted audio, and preserve completed output when notifications fail. Paid transcription jobs retain their provider ID for safe recovery; an uncertain submission stops instead of automatically charging again. Changed inputs cannot hide saved paid jobs, completed transcripts validate their source and settings, and YouTube workflows can plan without trusting URL-only outline caches. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+- **Fixed:** Local installations now apply the missing Stripe account schema required for sign-in and administration. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+- **Improved:** Add your own caption and unchanged hashtags to a publication ZIP without generating text. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+- **Improved:** Navigate admin settings, users, tasks and additional tools by section. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+- **Improved:** Analytics now shows the latest social metrics snapshot for each source clip and platform, with the snapshot time. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+- **New:** Download a completed editor export with its matching subtitles and available cover in a publication ZIP; its manifest identifies missing files. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+- **Improved:** When the same YouTube source is processed again, reusable word timings can be kept per account and reused when the downloaded media and transcription settings match. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+- **New:** Download the subtitles from a saved editor draft as an SRT file. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+- **New:** Add an OpenAI-compatible model connection, test it, and choose whether to add it to the fallback chain. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+- **New:** Choose a gaming-stream profile to prioritize complete spoken moments and their context, and translate and edit a clip's headline. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+- **Improved:** The interface is available in Russian. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+- **Improved:** Clip downloads use readable names, the editor shows approximate Reels safe areas, and post descriptions can be generated in Russian. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+- **Improved:** The admin dashboard refreshes its counts and shows waiting and processing tasks separately. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+
 ## 2026-11-12
 
 - **New:** The subtitle editor can translate the captions into Russian. The translation is matched to the spoken phrases of the original, so every translated word keeps the timing of the phrase it belongs to and a pause in the speech stays a pause on screen. You can translate with AI, paste your own translation, and correct the matching phrase by phrase. ([#380](https://github.com/FujiwaraChoki/supoclip/pull/380))

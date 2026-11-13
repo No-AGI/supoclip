@@ -29,6 +29,15 @@ async function proxy(
 
   const body =
     method === "GET" ? undefined : await request.text();
+  if (method !== "GET") {
+    const origin = request.headers.get("origin");
+    if (request.headers.get("sec-fetch-site") === "cross-site" || (origin && origin !== new URL(request.url).origin)) {
+      return NextResponse.json({ error: "Forbidden origin" }, { status: 403 });
+    }
+    if (body && !/^application\/json(?:\s*;|\s*$)/i.test(request.headers.get("content-type") ?? "")) {
+      return NextResponse.json({ error: "Expected JSON" }, { status: 415 });
+    }
+  }
   const upstream = await fetchBackend(`/admin/llm/${path.join("/")}`, {
     method,
     userId: adminCheck.session.user.id,

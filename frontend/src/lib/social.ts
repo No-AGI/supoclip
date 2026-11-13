@@ -77,6 +77,7 @@ export interface SocialPost {
 export interface HookTypePerformance {
   hook_type: string;
   posts: number;
+  measured_posts: number;
   avg_views: number | null;
   median_views: number | null;
   avg_likes: number | null;
@@ -113,6 +114,22 @@ export interface PerformanceSummary {
   top_posts: SocialPost[];
   min_posts_for_personalization: number;
   personalization_active: boolean;
+}
+
+export interface ClipPlatformPerformance {
+  clip_id: string;
+  clip_order: number | null;
+  title: string | null;
+  provider: SocialProviderId;
+  posts: number;
+  measured_posts: number;
+  views: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  saves: number | null;
+  snapshot_from: string | null;
+  snapshot_through: string | null;
 }
 
 export const PROVIDER_LABELS: Record<SocialProviderId, string> = {

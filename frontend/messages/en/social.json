@@ -2,6 +2,9 @@
   "generateCaption": "Generate caption",
   "generatingCaption": "Writing caption…",
   "captionFailed": "Couldn't generate a caption. Try again or write your own.",
+  "captionLanguage": "Caption language",
+  "originalLanguage": "Original language",
+  "russianLanguage": "Russian",
   "metrics": {
     "view": "view",
     "views": "views",

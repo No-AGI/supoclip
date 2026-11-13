@@ -26,6 +26,7 @@ import {
   captionGroups,
   clamp,
   editDuration,
+  effectiveHookTitle,
   hookRange,
   locate,
   mappedBroll,
@@ -114,7 +115,7 @@ export function Timeline({
   const lanes = useRef<HTMLDivElement>(null);
   const items = sequence(doc);
   const total = Math.max(0.01, editDuration(doc));
-  const hook = doc.hookTitle?.trim() ? hookRange(doc) : null;
+  const hook = effectiveHookTitle(doc).trim() ? hookRange(doc) : null;
   const active = doc.segments[index] ?? doc.segments[0];
   const playhead = clamp(
     outputTime(doc, Math.min(index, doc.segments.length - 1), clamp(currentTime, active.start, active.end)),

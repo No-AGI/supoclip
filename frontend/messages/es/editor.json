@@ -81,6 +81,8 @@
     "applying": "Aplicando…",
     "applyAll": "Aplicar a todos los clips",
     "hookTitle": "Título gancho",
+    "localizedHookTitle": "Título gancho traducido",
+    "restoreHookTitle": "Restaurar título original",
     "hookDescription": "Arrastra los bordes del título en la línea de tiempo para ajustar cuándo aparece. Déjalo vacío para eliminarlo.",
     "hookPlaceholder": "Sin título gancho",
     "transcript": "Transcripción",

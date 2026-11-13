@@ -45,5 +45,9 @@
     "date": "Datum",
     "views": "Aufrufe",
     "viewCount": "{count, plural, one {{formatted} Aufruf} other {{formatted} Aufrufe}}"
-  }
+  },
+  "clip": "Clip-ID",
+  "clipPerformance": "Leistung nach Clip",
+  "snapshotTime": "Zeitraum der Messungen",
+  "measuredPosts": "Gemessene Beiträge"
 }

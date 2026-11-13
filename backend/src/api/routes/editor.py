@@ -5,16 +5,22 @@ import math
 import json
 import re
 import uuid
+from urllib.parse import parse_qs
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from starlette.background import BackgroundTask
+from ... import clip_archive
 from ...media_storage import MediaStorage, STORAGE_ERRORS, media_work
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...analytics import capture_clip_export
+from ...clip_naming import clip_download_filename, clip_position
 from ...database import get_db
 from ...editor_document import EditDocument, RevisionConflict
+from ...editor_document import caption_chunk_starts, mapped_words
+from ...media.srt import build_srt
 from ...editor_state import (
     get_store,
     new_job_id,
@@ -22,6 +28,7 @@ from ...editor_state import (
     reap_jobs,
     render_job_id,
 )
+from ...services.editor_publish_package import prepare_publish_package
 from ...services.editor_service import caption_looks, upgrade_document
 from ...services.task_service import TaskService
 from ...services.ai_edit_allowance_service import (
@@ -32,16 +39,25 @@ from ...utils.async_helpers import run_in_thread
 from .tasks import _require_task_owner, _read_json_object
 
 router = APIRouter(prefix="/tasks", tags=["editor"])
+PUBLISH_FORM_MAX_BYTES = 64 * 1024
+PUBLISH_CAPTION_MAX_CHARS = 2200
+PUBLISH_HASHTAGS_MAX_CHARS = 4000
 
 
-async def owned_context(request, db, task_id, clip_id):
+async def owned_context(request, db, task_id, clip_id, *, include_download_position=False):
     service = TaskService(db)
     task = await _require_task_owner(request, service, db, task_id)
     clip = await service.clip_repo.get_clip_by_id(db, clip_id)
     if not clip or clip["task_id"] != task_id:
         raise HTTPException(404, "Clip not found")
+    download_position = None
+    if include_download_position:
+        clips = await service.clip_repo.get_clips_by_task(db, task_id)
+        download_position = clip_position(clip, clips)
     await db.close()
     session = await open_session(service.config.temp_dir, task_id, clip)
+    if download_position is not None:
+        clip = {**clip, "_download_position": download_position}
     return task, clip, session
 
 
@@ -207,6 +223,67 @@ async def media(
     )
 
 
+@router.get("/{task_id}/clips/{clip_id}/editor/captions.srt")
+async def download_srt(
+    task_id: str,
+    clip_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    """Download subtitles for the current saved editor draft."""
+    task, clip, session = await owned_context(
+        request, db, task_id, clip_id, include_download_position=True
+    )
+    state = await session.state()
+    if state.get("status") != "ready":
+        raise HTTPException(409, "Prepare the editor preview before downloading subtitles")
+    draft = state.get("draft")
+    if not isinstance(draft, dict) or not isinstance(draft.get("document"), dict):
+        raise HTTPException(409, "Save the editor draft before downloading subtitles")
+    try:
+        document = EditDocument.model_validate(draft["document"]).validate_duration(state["duration"])
+    except (ValueError, ValidationError) as exc:
+        raise HTTPException(409, "The saved editor draft is invalid") from exc
+    if not document.captions.enabled:
+        raise HTTPException(409, "Captions are disabled in the saved editor draft")
+
+    words = mapped_words(document)
+    if not words:
+        raise HTTPException(409, "The saved editor draft has no caption words")
+    starts = caption_chunk_starts(words, document.captions.wordsPerLine, document.translation)
+    groups = []
+    for position, start in enumerate(starts):
+        stop = starts[position + 1] if position + 1 < len(starts) else len(words)
+        group = words[start:stop]
+        text = " ".join(word["text"] for word in group)
+        groups.append({
+            "text": text.upper() if document.captions.uppercase else text,
+            "start": group[0]["start"],
+            "end": group[-1]["end"],
+        })
+    if not groups:
+        raise HTTPException(409, "The saved editor draft has no caption groups")
+    try:
+        content = build_srt(groups)
+    except ValueError as exc:
+        raise HTTPException(409, "The saved captions have invalid or overlapping timings") from exc
+    filename = clip_download_filename(
+        clip, task.get("source_title"),
+        position=clip.get("_download_position"), preset="editor",
+    )
+    filename = filename[:-4] + ".srt" if filename.lower().endswith(".mp4") else "captions.srt"
+    from urllib.parse import quote
+
+    return Response(
+        content,
+        media_type="application/x-subrip; charset=utf-8",
+        headers={
+            "Cache-Control": "private, no-store",
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
+        },
+    )
+
+
 @router.post("/{task_id}/clips/{clip_id}/editor/exports", status_code=202)
 async def start_export(
     task_id: str, clip_id: str, request: Request, db: AsyncSession = Depends(get_db)
@@ -232,8 +309,17 @@ async def start_export(
     await reap_jobs(session.key)
     job_id = new_job_id()
     # The job keeps the exact document it renders; later saves do not change it.
+    saved_draft = state.get("draft") or {}
+    snapshot_revision = (
+        saved_draft.get("revision")
+        if saved_draft.get("document") == document.model_dump()
+        else None
+    )
     if not await store.create_job(
-        session.key, job_id, "export", {"document": document.model_dump(), "preset": preset}
+        session.key, job_id, "export", {
+            "document": document.model_dump(), "preset": preset,
+            "draft_revision": snapshot_revision,
+        }
     ):
         raise HTTPException(429, "Three exports are already running for this clip")
     try:
@@ -283,12 +369,17 @@ async def export_file(
     request: Request,
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
-    task, _, session = await owned_context(request, db, task_id, clip_id)
+    task, clip, session = await owned_context(
+        request, db, task_id, clip_id, include_download_position=True
+    )
     job = await _job(session, job_id)
     if job["status"] != "completed":
         raise HTTPException(409, "Export is not ready")
     output = session.directory / f"export-{job_id}.mp4"
-    filename = f"supoclip-{clip_id[:8]}-{job_id[:6]}.mp4"
+    filename = clip_download_filename(
+        clip, task.get("source_title"),
+        position=clip.get("_download_position"), preset="editor",
+    )
     redirect = await _stored_media(MediaStorage(), session, output.name, filename, attachment=True)
     if redirect is not None:
         capture_clip_export(request, task, surface="editor", format="editor")
@@ -301,6 +392,141 @@ async def export_file(
         media_type="video/mp4",
         filename=filename,
         headers={"Cache-Control": "private, no-store"},
+    )
+
+
+async def _publish_form_values(request: Request) -> tuple[str | None, str | None]:
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if content_type != "application/x-www-form-urlencoded":
+        raise HTTPException(415, "Use an HTML form to submit publish text")
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > PUBLISH_FORM_MAX_BYTES:
+            raise HTTPException(413, "Publish text is too large")
+        chunks.append(chunk)
+    try:
+        values = parse_qs(
+            b"".join(chunks).decode("ascii"),
+            keep_blank_values=True,
+            strict_parsing=True,
+            encoding="utf-8",
+            errors="strict",
+        )
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise HTTPException(400, "Invalid publish form") from exc
+    if set(values) - {"caption", "hashtags"} or any(len(items) != 1 for items in values.values()):
+        raise HTTPException(400, "Invalid publish form fields")
+    caption = values.get("caption", [None])[0]
+    hashtags = values.get("hashtags", [None])[0]
+    if caption is not None and len(caption) > PUBLISH_CAPTION_MAX_CHARS:
+        raise HTTPException(422, "Caption must be 2200 characters or fewer")
+    if hashtags is not None and len(hashtags) > PUBLISH_HASHTAGS_MAX_CHARS:
+        raise HTTPException(422, "Hashtags must be 4000 characters or fewer")
+    return caption, hashtags
+
+
+async def _export_publish_package(
+    task_id: str,
+    clip_id: str,
+    job_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    *,
+    social_caption: str | None = None,
+    social_hashtags: str | None = None,
+):
+    """Download a ZIP whose media and subtitle sidecar come from one export job."""
+    task, clip, session = await owned_context(
+        request, db, task_id, clip_id, include_download_position=True
+    )
+    job = await _job(session, job_id)
+    if job["status"] != "completed":
+        raise HTTPException(409, "Export is not ready")
+    job_request = await get_store().job_request(session.key, job_id)
+    if not isinstance(job_request, dict) or not isinstance(job_request.get("document"), dict):
+        raise HTTPException(409, "The export snapshot is unavailable")
+    if not isinstance(job_request.get("draft_revision"), int):
+        raise HTTPException(409, "This export was not created from a saved draft revision")
+
+    storage = MediaStorage()
+    filename = clip_download_filename(
+        clip, task.get("source_title"), position=clip.get("_download_position"), preset="editor",
+    )
+    try:
+        temporary, entries, _manifest = await run_in_thread(
+            prepare_publish_package,
+            session,
+            storage,
+            task_id=task_id,
+            clip_id=clip_id,
+            job_id=job_id,
+            job_request=job_request,
+            filename=filename,
+            source_title=task.get("source_title"),
+            clip_title=clip.get("hook_title"),
+            social_caption=social_caption,
+            social_hashtags=social_hashtags,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(409, str(exc)) from None
+    except (ValueError, ValidationError) as exc:
+        raise HTTPException(409, "The export snapshot is invalid") from exc
+    except STORAGE_ERRORS:
+        raise HTTPException(503, "Media storage is temporarily unavailable") from None
+
+    async def stream():
+        try:
+            async for chunk in clip_archive.stream_archive(
+                entries, lambda entry: clip_archive.open_entry(entry, storage)
+            ):
+                yield chunk
+        finally:
+            temporary.cleanup()
+
+    capture_clip_export(request, task, surface="editor", format="publish_zip")
+    package_name = filename[:-4] + "-publish.zip" if filename.lower().endswith(".mp4") else "publish.zip"
+    return StreamingResponse(
+        stream(),
+        media_type="application/zip",
+        background=BackgroundTask(temporary.cleanup),
+        headers={
+            "Content-Disposition": clip_archive.content_disposition(package_name),
+            "Cache-Control": "private, no-store",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/{task_id}/clips/{clip_id}/editor/exports/{job_id}/publish.zip")
+async def export_publish_package(
+    task_id: str,
+    clip_id: str,
+    job_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    return await _export_publish_package(task_id, clip_id, job_id, request, db)
+
+
+@router.post("/{task_id}/clips/{clip_id}/editor/exports/{job_id}/publish.zip")
+async def export_publish_package_with_social_text(
+    task_id: str,
+    clip_id: str,
+    job_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    caption, hashtags = await _publish_form_values(request)
+    return await _export_publish_package(
+        task_id,
+        clip_id,
+        job_id,
+        request,
+        db,
+        social_caption=caption,
+        social_hashtags=hashtags,
     )
 
 

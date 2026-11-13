@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
+import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -15,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...admin_auth import require_admin_user
 from ...ai import _build_transcript_model, _get_missing_llm_key_error
 from ...config import get_config
+from ...custom_llm_connections import connection_provider, model_target, parse_connections
+from ...custom_llm_transport import validate_base_url
 from ...database import get_db
 from ...llm_fallback import (
     key_fingerprint,
@@ -177,6 +181,17 @@ class LlmModelTest(BaseModel):
     model: str
 
 
+class CustomConnectionInput(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    base_url: str = Field(min_length=1, max_length=2048)
+    api_key: str = Field(min_length=1, max_length=4096)
+    model: str = Field(min_length=1, max_length=300)
+
+
+class _ConnectionProbeResult(BaseModel):
+    ok: bool
+
+
 async def _save_setting(
     db: AsyncSession, setting_key: str, value: str, user_id: str
 ) -> None:
@@ -221,12 +236,12 @@ def _validate_model_name(model_name: str) -> str:
         )
     provider, name = cleaned.split(":", 1)
     provider = provider.strip().lower()
-    if provider not in LLM_PROVIDERS:
+    if provider not in LLM_PROVIDERS and not (connection_provider(provider) and get_config().custom_connection(provider)):
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported provider '{provider}'.",
         )
-    if not name.strip():
+    if not name.strip() or "," in name or "\n" in name or "\r" in name:
         raise HTTPException(status_code=400, detail="The model name is missing.")
     return f"{provider}:{name.strip()}"
 
@@ -238,9 +253,11 @@ def _current_chain() -> tuple[str, ...]:
     The cache is refreshed on every save, so the page shows what was just
     written and not what a config object remembers from earlier.
     """
-    primary = get_config().llm
+    config = get_config()
+    primary = config.llm
     models = [primary]
-    for name in (get_cached_setting("LLM_FALLBACKS") or "").split(","):
+    # Honour the same admin/environment precedence as the actual runner.
+    for name in (getattr(config, "llm_fallbacks", "") or "").split(","):
         cleaned = name.strip()
         if cleaned and cleaned not in models:
             models.append(cleaned)
@@ -268,6 +285,82 @@ def _stored_keys() -> dict[str, list[str]]:
         if keys:
             stored[str(provider).strip().lower()] = keys
     return stored
+
+
+def _public_connection(item: dict[str, str]) -> dict[str, str]:
+    return {"id": item["id"], "name": item["name"], "base_url": item["base_url"],
+            "model": item["model"], "key_fingerprint": key_fingerprint(item["api_key"]) or ""}
+
+
+def _local_hosts() -> set[str]:
+    return {host.strip().lower() for host in os.getenv("LLM_TRUSTED_LOCAL_HOSTS", "").split(",") if host.strip()}
+
+
+async def _lock_custom_registry(db: AsyncSession) -> list[dict[str, str]]:
+    # Serialize changes across API processes and reload after acquiring the lock.
+    await db.execute(text("SELECT pg_advisory_xact_lock(hashtext('supoclip-llm-custom-connections'))"))
+    await load_runtime_settings_cache(db)
+    return parse_connections(get_cached_setting("LLM_CUSTOM_CONNECTIONS"))
+
+
+@router.get("/llm/connections")
+async def list_custom_connections(request: Request, db: AsyncSession = Depends(get_db)):
+    await require_admin_user(request, db, get_config())
+    return {"connections": [_public_connection(item) for item in parse_connections(get_cached_setting("LLM_CUSTOM_CONNECTIONS"))]}
+
+
+@router.post("/llm/connections")
+async def create_custom_connection(request: Request, payload: CustomConnectionInput, db: AsyncSession = Depends(get_db)):
+    user_id = await require_admin_user(request, db, get_config())
+    name, model, key = payload.name.strip(), payload.model.strip(), payload.api_key.strip()
+    if not name or not model or not key or any(ch in model for ch in ",\r\n"):
+        raise HTTPException(400, "Name, model and API key must be valid")
+    try:
+        base_url = validate_base_url(payload.base_url, _local_hosts())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    connections = await _lock_custom_registry(db)
+    item = {"id": f"custom-{uuid.uuid4().hex}", "name": name, "base_url": base_url, "model": model, "api_key": key}
+    connections.append(item)
+    await _save_setting(db, "LLM_CUSTOM_CONNECTIONS", json.dumps(connections), user_id)
+    return _public_connection(item)
+
+
+@router.delete("/llm/connections/{connection_id}")
+async def delete_custom_connection(connection_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    user_id = await require_admin_user(request, db, get_config())
+    connections = await _lock_custom_registry(db)
+    if not any(item["id"] == connection_id for item in connections):
+        raise HTTPException(404, "Connection not found")
+    if any(model_provider(name) == connection_id for name in get_config().llm_chain()):
+        raise HTTPException(409, "Remove this connection from the model chain first")
+    await _save_setting(db, "LLM_CUSTOM_CONNECTIONS", json.dumps([item for item in connections if item["id"] != connection_id]), user_id)
+    return {"id": connection_id}
+
+
+@router.post("/llm/connections/{connection_id}/test")
+async def test_custom_connection(connection_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    await require_admin_user(request, db, get_config())
+    config = get_config()
+    item = config.custom_connection(connection_id)
+    if not item:
+        raise HTTPException(404, "Connection not found")
+    started = time.monotonic()
+    model = None
+    try:
+        model = _build_transcript_model(config, model_target(item), item["api_key"])
+        agent = Agent(model, output_type=_ConnectionProbeResult, system_prompt="Return a structured result with ok set to true.")
+        result = await asyncio.wait_for(agent.run("Check this connection."), timeout=PROBE_TIMEOUT_SECONDS)
+        if not result.output.ok:
+            raise ValueError("Unexpected probe result")
+    except Exception as exc:
+        # Never expose remote response bodies, which can echo a secret.
+        return {"id": connection_id, "ok": False, "seconds": round(time.monotonic() - started, 2), "error": type(exc).__name__}
+    finally:
+        client = getattr(model, "_supoclip_http_client", None)
+        if client is not None:
+            await client.aclose()
+    return {"id": connection_id, "ok": True, "seconds": round(time.monotonic() - started, 2), "model": model_target(item)}
 
 
 def _key_rows(config) -> dict[str, list[dict[str, str]]]:
@@ -326,6 +419,9 @@ async def update_llm_chain(
 ):
     """Set the models that are tried after the main one."""
     user_id = await require_admin_user(request, db, get_config())
+    # Use the same transaction lock as connection deletion: otherwise a
+    # concurrently deleted connection could enter the chain after validation.
+    await _lock_custom_registry(db)
     fallbacks: list[str] = []
     for model_name in payload.fallbacks:
         cleaned = _validate_model_name(model_name)
@@ -424,7 +520,8 @@ async def test_llm_model(
         "model": model_name,
         "ok": True,
         "seconds": round(time.monotonic() - started, 2),
-        "answer": str(outcome.value.output)[:120],
+        # A custom endpoint controls its response and may echo credentials.
+        "answer": "ok" if connection_provider(provider) else str(outcome.value.output)[:120],
         "attempts": [attempt.as_dict() for attempt in outcome.attempts],
     }
 
@@ -470,7 +567,7 @@ async def get_runtime_settings(request: Request, db: AsyncSession = Depends(get_
     rows = await get_runtime_setting_rows(db)
     return {
         "settings": [
-            _setting_status(setting_key, rows) for setting_key in RUNTIME_SETTING_KEYS
+            _setting_status(setting_key, rows) for setting_key in RUNTIME_SETTING_KEYS if setting_key != "LLM_CUSTOM_CONNECTIONS"
         ]
     }
 
@@ -482,7 +579,10 @@ async def update_runtime_settings(
     db: AsyncSession = Depends(get_db),
 ):
     user_id = await require_admin_user(request, db, get_config())
-    allowed_keys = set(RUNTIME_SETTING_KEYS)
+    chain_keys = {"LLM", "LLM_FALLBACKS"}
+    if chain_keys.intersection(payload.updates) or chain_keys.intersection(payload.delete_keys) or chain_keys.intersection(payload.prefer_admin_values):
+        await _lock_custom_registry(db)
+    allowed_keys = set(RUNTIME_SETTING_KEYS) - {"LLM_CUSTOM_CONNECTIONS"}
     invalid_keys = [
         key
         for key in [
@@ -497,6 +597,13 @@ async def update_runtime_settings(
             status_code=400,
             detail=f"Unsupported setting key(s): {', '.join(sorted(set(invalid_keys)))}",
         )
+
+    # The generic settings form must apply the same validation as the chain
+    # editor, while holding the registry lock until the changes commit.
+    if "LLM_FALLBACKS" in payload.updates:
+        for name in payload.updates["LLM_FALLBACKS"].split(","):
+            if name.strip():
+                _validate_model_name(name)
 
     if "LLM" in payload.updates:
         config_error = _get_missing_llm_key_error(
@@ -563,6 +670,6 @@ async def update_runtime_settings(
     rows = await get_runtime_setting_rows(db)
     return {
         "settings": [
-            _setting_status(setting_key, rows) for setting_key in RUNTIME_SETTING_KEYS
+            _setting_status(setting_key, rows) for setting_key in RUNTIME_SETTING_KEYS if setting_key != "LLM_CUSTOM_CONNECTIONS"
         ]
     }

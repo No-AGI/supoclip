@@ -1,0 +1,3 @@
+{
+  "metaTitle": "История изменений SupoClip", "metaDescription": "Новые функции, улучшения и исправления SupoClip: клипы из Twitch и Kick, облачные тарифы и редактор.", "ogTitle": "История изменений SupoClip", "ogDescription": "Что изменилось в SupoClip для пользователей. Сначала свежие обновления.", "eyebrow": "Обновления продукта", "title": "История изменений", "intro": "Что изменилось для пользователей SupoClip. Сначала свежие обновления.", "hostedApp": "Облачное приложение", "startClipping": "Создать клипы", "relatedChange": "Связанное изменение {label}", "viewOnGitHub": "Посмотреть историю изменений на GitHub", "categories": {"new": "Новое", "improved": "Улучшения", "fixed": "Исправления", "underTheHood": "Внутренние изменения"}
+}

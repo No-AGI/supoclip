@@ -404,10 +404,19 @@ export function Preview({
           />
           <TextLayers doc={doc} asset={asset} time={time} index={segmentIndex} videoRef={videoRef} update={update} resolution={resolution} timelineDraft={textDraft} />
           {guides && (
-            <div className="pointer-events-none absolute inset-x-[8%] top-[10%] bottom-[20%] rounded-lg border border-dashed border-white/60">
-              <span className="absolute -top-5 text-[10px] text-white/70">
-                {t("preview.safeContent")}
-              </span>
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 overflow-hidden"
+            >
+              {/* Approximate Instagram Reels controls; this DOM overlay is preview-only. */}
+              <div className="absolute inset-x-0 top-0 h-[10%] bg-black/20" />
+              <div className="absolute inset-x-0 bottom-0 h-[20%] bg-black/25" />
+              <div className="absolute right-0 top-[18%] bottom-[24%] w-[12%] bg-black/20" />
+              <div className="absolute inset-x-[8%] top-[10%] bottom-[20%] rounded-lg border border-dashed border-white/70 shadow-[0_0_0_999px_rgb(0_0_0/0.08)]">
+                <span className="absolute -top-5 rounded bg-black/50 px-1.5 py-0.5 text-[10px] text-white/85">
+                  ≈ {t("preview.safeContent")}
+                </span>
+              </div>
             </div>
           )}
           {mediaError && (

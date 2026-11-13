@@ -199,9 +199,13 @@ async def generate_caption(request: Request, db: AsyncSession = Depends(get_db))
     for field in ("task_id", "clip_id", "provider"):
         if not isinstance(body.get(field), str) or not body[field].strip():
             raise HTTPException(status_code=422, detail=f"{field} is required")
+    target_language = body.get("target_language")
+    if target_language not in (None, "Russian"):
+        raise HTTPException(status_code=422, detail="target_language must be Russian or null")
     try:
         return await _service(request, db).generate_caption(
-            user_id, task_id=body["task_id"], clip_id=body["clip_id"], provider=body["provider"]
+            user_id, task_id=body["task_id"], clip_id=body["clip_id"], provider=body["provider"],
+            target_language=target_language,
         )
     except SocialError as exc:
         raise _http_error(exc)
@@ -240,6 +244,13 @@ async def get_performance(request: Request, db: AsyncSession = Depends(get_db)):
     """Aggregate audience performance, grouped the same way the AI uses it."""
     user_id = await _allowed_user_id(request, db)
     return await _service(request, db).get_performance_summary(user_id)
+
+
+@router.get("/performance/clips")
+async def get_clip_level_performance(request: Request, db: AsyncSession = Depends(get_db)):
+    """Latest social metrics per source clip and platform for the signed-in user."""
+    user_id = await _allowed_user_id(request, db)
+    return {"clips": await _service(request, db).get_clip_level_performance(user_id)}
 
 
 @router.get("/performance/timeseries")

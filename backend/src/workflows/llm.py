@@ -68,8 +68,11 @@ def _build_agent_for(
         cfg.anthropic_api_key,
         cfg.ollama_base_url,
         cfg.ollama_api_key,
+        getattr(cfg, "llm_custom_connections", ""),
     )
-    agent = _agents.get(signature)
+    from ..custom_llm_connections import connection_provider
+    custom = connection_provider(ai.model_provider(name))
+    agent = None if custom else _agents.get(signature)
     if agent is not None:
         _agents.move_to_end(signature)
         return agent
@@ -87,6 +90,8 @@ def _build_agent_for(
         # this large without one. The shared runner bounds the wall clock anyway.
         model_settings={"max_tokens": MAX_OUTPUT_TOKENS, "timeout": CALL_TIMEOUT_SECONDS} if native else None,
     )
+    if custom:
+        return agent
     _agents[signature] = agent
     while len(_agents) > _AGENT_CACHE_SIZE:
         _agents.popitem(last=False)
@@ -101,9 +106,15 @@ def build_agent(output_type: type[T], system_prompt: str, *, structural: bool) -
     """
     name = model_name(structural=structural)
     agent = _build_agent_for(output_type, system_prompt, name, None)
-    agent._noagi_builder = lambda model, key: _build_agent_for(
-        output_type, system_prompt, model, key
-    )
+    from ..custom_llm_connections import connection_provider
+    initial = agent if connection_provider(ai.model_provider(name)) else None
+    def builder(model, key):
+        nonlocal initial
+        if initial is not None and model == name:
+            value, initial = initial, None
+            return value
+        return _build_agent_for(output_type, system_prompt, model, key)
+    agent._noagi_builder = builder
     # The model of this pass comes first, the fallbacks of the chain follow.
     chain = ai.llm_chain(get_config())
     agent._noagi_chain = tuple([name]) + tuple(model for model in chain if model != name)

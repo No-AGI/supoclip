@@ -24,6 +24,7 @@ import hashlib
 import time
 from ...utils.async_helpers import run_in_thread
 from ... import clip_archive
+from ...clip_naming import clip_download_filename, clip_position
 
 from ...repositories.generation_allowance_guard import generation_allowance_guard, GenerationAllowanceBusy
 from ...repositories.task_run_guard import task_run_guard, TaskRunBusy
@@ -626,6 +627,14 @@ async def _create_task(request: Request, db: AsyncSession, attempt: SourceAttemp
         workflow_spec = parse_workflow_request(data, clip_length)
     except WorkflowRequestError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.to_detail()) from None
+    clip_profile = data.get("clip_profile", "general")
+    if not isinstance(clip_profile, str) or clip_profile not in {"general", "gaming_stream"}:
+        raise HTTPException(status_code=422, detail="Invalid clip profile")
+    if clip_profile == "gaming_stream" and workflow_spec.workflow != "highlights":
+        raise HTTPException(
+            status_code=422,
+            detail="The gaming stream profile is only available for highlights",
+        )
     if not workflow_spec.legacy and not await workflow_allowed_for(
         db, user_id, workflow_spec.workflow, platform=client_platform(request)
     ):
@@ -648,6 +657,7 @@ async def _create_task(request: Request, db: AsyncSession, attempt: SourceAttemp
         "add_subtitles": add_subtitles,
         "clip_length": clip_length,
         "cleanup_settings": cleanup_settings,
+        **({"clip_profile": clip_profile} if clip_profile != "general" else {}),
     }
     if not workflow_spec.legacy:
         # Plain highlights keep their existing key. The key is a hash, so topic
@@ -755,6 +765,7 @@ async def _create_task(request: Request, db: AsyncSession, attempt: SourceAttemp
                         {
                             "processing_job_id": processing_job_id,
                             "clip_length": clip_length,
+                            **({"clip_profile": clip_profile} if clip_profile != "general" else {}),
                             "enqueued_at": datetime.now(timezone.utc).isoformat(),
                             **({"source_key": source_key} if source_key else {}),
                             **_stream_resolution_metadata(stream_metadata),
@@ -770,7 +781,7 @@ async def _create_task(request: Request, db: AsyncSession, attempt: SourceAttemp
 
                 # Enqueue job for worker
                 queue_adapter = getattr(request.app.state, "queue_adapter", JobQueue)
-                job_id = await queue_adapter.enqueue_processing_job(
+                job_args = (
                     "process_video_task",
                     processing_mode,
                     task_id,
@@ -786,7 +797,11 @@ async def _create_task(request: Request, db: AsyncSession, attempt: SourceAttemp
                     add_subtitles,
                     cleanup_settings,
                     clip_length,
-                    _job_id=processing_job_id,
+                )
+                if clip_profile != "general":
+                    job_args += (clip_profile,)
+                job_id = await queue_adapter.enqueue_processing_job(
+                    *job_args, _job_id=processing_job_id
                 )
 
             except Exception:
@@ -899,9 +914,16 @@ async def get_shared_clip_file(
     if not clip or clip.get("task_id") != task_id:
         raise HTTPException(status_code=404, detail="Clip not found")
 
+    task = await task_service.task_repo.get_task_by_id(db, task_id)
+    filename = clip["filename"]
+    if download:
+        clips = await task_service.clip_repo.get_clips_by_task(db, task_id)
+        filename = clip_download_filename(
+            clip, task.get("source_title"), position=clip_position(clip, clips)
+        )
     if is_s3(clip["file_path"]):
         await db.close()
-        url = await run_in_thread(MediaStorage().signed_url, clip["file_path"], clip["filename"], attachment=download)
+        url = await run_in_thread(MediaStorage().signed_url, clip["file_path"], filename, attachment=download)
         return RedirectResponse(url, status_code=307, headers={"Cache-Control": "private, no-store"})
     clip_path = Path(clip["file_path"])
     if not clip_path.exists():
@@ -910,7 +932,7 @@ async def get_shared_clip_file(
     return FileResponse(
         path=str(clip_path),
         media_type="video/mp4",
-        filename=clip["filename"],
+        filename=filename,
         content_disposition_type="attachment" if download else "inline",
         headers={"Cache-Control": "private, no-store"},
     )
@@ -1171,10 +1193,14 @@ async def get_clip_file(
         clip = await task_service.clip_repo.get_clip_by_id(db, clip_id)
         if not clip or clip.get("task_id") != task_id:
             raise HTTPException(status_code=404, detail="Clip not found")
-
+        filename = clip["filename"]
+        if download:
+            clips = await task_service.clip_repo.get_clips_by_task(db, task_id)
+            position = clip_position(clip, clips)
+            filename = clip_download_filename(clip, task.get("source_title"), position=position)
         if is_s3(clip["file_path"]):
             await db.close()
-            url = await run_in_thread(MediaStorage().signed_url, clip["file_path"], clip["filename"], attachment=download)
+            url = await run_in_thread(MediaStorage().signed_url, clip["file_path"], filename, attachment=download)
             if download:
                 capture_clip_export(request, task, surface="original", format="original")
             return RedirectResponse(url, status_code=307, headers={"Cache-Control": "private, no-store"})
@@ -1195,7 +1221,7 @@ async def get_clip_file(
         return FileResponse(
             path=str(clip_path),
             media_type="video/mp4",
-            filename=clip["filename"],
+            filename=filename,
             content_disposition_type="attachment" if download else "inline",
             headers={"Cache-Control": "private, no-store"},
         )
@@ -1216,7 +1242,7 @@ async def _prepare_clip_archive(request: Request, db: AsyncSession, task_id: str
     await db.close()
     try:
         entries = await run_in_thread(
-            clip_archive.resolve_entries, clips, MediaStorage(), task.get("workflow")
+            clip_archive.resolve_entries, clips, MediaStorage(), task.get("workflow"), task.get("source_title")
         )
     except STORAGE_ERRORS:
         logger.exception("Could not list clip files for task %s", task_id)
@@ -1545,6 +1571,8 @@ async def export_clip(
         clip = await task_service.clip_repo.get_clip_by_id(db, clip_id)
         if not clip or clip.get("task_id") != task_id:
             raise HTTPException(status_code=404, detail="Clip not found")
+        clips = await task_service.clip_repo.get_clips_by_task(db, task_id)
+        position = clip_position(clip, clips)
 
         from pathlib import Path
 
@@ -1561,7 +1589,9 @@ async def export_clip(
             preset_name,
         )
 
-        download_name = f"{Path(clip['filename']).stem}_{preset_name}.mp4"
+        download_name = clip_download_filename(
+            clip, task.get("source_title"), position=position, preset=preset_name
+        )
         capture_clip_export(request, task, surface="preset", format=preset_name)
         return FileResponse(
             path=str(output_path), media_type="video/mp4", filename=download_name,
@@ -1717,7 +1747,7 @@ async def resume_task(
                     processing_job_id = f"{task_id}:{secrets.token_hex(16)}"
                     metadata["processing_job_id"] = processing_job_id
                     await _save_task_source_metadata(task_id, metadata, db=db)
-                    job_id = await JobQueue.enqueue_processing_job(
+                    job_args = (
                         "process_video_task",
                         processing_mode,
                         task_id,
@@ -1733,7 +1763,12 @@ async def resume_task(
                         add_subtitles,
                         cleanup_settings,
                         normalize_clip_length(metadata.get("clip_length")),
-                        _job_id=processing_job_id,
+                    )
+                    clip_profile = metadata.get("clip_profile", "general")
+                    if clip_profile == "gaming_stream":
+                        job_args += (clip_profile,)
+                    job_id = await JobQueue.enqueue_processing_job(
+                        *job_args, _job_id=processing_job_id
                     )
                 except Exception:
                     await task_service.task_repo.update_task_status(

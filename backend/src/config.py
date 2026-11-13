@@ -42,6 +42,7 @@ class Config:
         # JSON with the extra keys of the providers, for example
         # {"google": ["key1", "key2"], "openrouter": ["keyA"]}.
         self.llm_provider_keys = self._get_runtime_setting("LLM_PROVIDER_KEYS") or ""
+        self.llm_custom_connections = self._get_runtime_setting("LLM_CUSTOM_CONNECTIONS") or ""
         # Optional separate model for the cross-window candidate rerank pass.
         self.rerank_llm = self._get_optional_env("RERANK_LLM") or self.llm
         self.assembly_ai_api_key = self._get_runtime_setting("ASSEMBLY_AI_API_KEY")
@@ -554,6 +555,10 @@ class Config:
         Every usable key of one provider: the stored ones first, then the key of
         the environment. The order is the order they are tried in.
         """
+        from .custom_llm_connections import connection_provider
+        if connection_provider(provider):
+            entry = self.custom_connection(provider)
+            return [entry["api_key"]] if entry else []
         keys: list[str] = []
         for key in self.stored_provider_keys().get(provider.strip().lower(), []):
             if key not in keys:
@@ -562,6 +567,10 @@ class Config:
         if env_key and env_key not in keys:
             keys.append(env_key)
         return keys
+
+    def custom_connection(self, connection_id: str) -> dict[str, str] | None:
+        from .custom_llm_connections import parse_connections
+        return next((item for item in parse_connections(self.llm_custom_connections) if item["id"] == connection_id), None)
 
     def provider_env_key(self, provider: str) -> str | None:
         """The key of one provider that comes from the environment."""

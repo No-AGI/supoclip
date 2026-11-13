@@ -1,6 +1,6 @@
 "use client";
 import { useRef, useState, type ReactNode } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   AlignCenter,
   Bookmark,
@@ -141,6 +141,7 @@ export function Inspector({
   selectBroll,
 }: Props) {
   const t = useTranslations("editor");
+  const locale = useLocale();
   const activeCaption = captionAt(doc, editTime);
   const captionId = activeCaption ? captionKey(doc, activeCaption) : undefined;
   const placement: CaptionTransform = activeCaption ? captionTransform(doc, activeCaption) : textTransform(doc, "captions");
@@ -383,12 +384,17 @@ export function Inspector({
                 aria-label={t("captions.hookTitle")}
                 maxLength={200}
                 placeholder={t("captions.hookPlaceholder")}
-                value={doc.hookTitle ?? ""}
+                value={doc.localizedHookTitle ?? doc.hookTitle ?? ""}
                 onChange={(e) => {
-                  const hookTitle = e.target.value;
-                  update((d) => ({ ...d, hookTitle }), "hook-title");
+                  const localizedHookTitle = e.target.value;
+                  update((d) => ({ ...d, localizedHookTitle }), "hook-title");
                 }}
               />
+              {doc.localizedHookTitle != null && (
+                <Button size="sm" variant="outline" onClick={() => update((d) => ({ ...d, localizedHookTitle: null }), "hook-title")}>
+                  {locale === "ru" ? "Восстановить исходный заголовок" : t("captions.restoreHookTitle")}
+                </Button>
+              )}
             </Section>
             <Section
               title={

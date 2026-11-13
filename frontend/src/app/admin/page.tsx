@@ -4,6 +4,7 @@ import { getLocale, getTranslations } from "next-intl/server";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { AdminUserToggle } from "@/components/admin/admin-user-toggle";
+import { AdminLiveStats } from "@/components/admin/admin-live-stats";
 import { LegacyHdToggle } from "@/components/admin/legacy-hd-toggle";
 import { FeatureFlagSwitch } from "@/components/admin/feature-flag-switch";
 import { formatBillingPlanName } from "@/lib/billing-plans";
@@ -108,13 +109,17 @@ export default async function AdminPage({
     }
   }
 
+  // Timestamp of this server render, used as the live-stats "last updated" baseline.
+  const renderedAt = new Date().toISOString();
+
   const [
     runtimeSettings,
     totalUsers,
     adminUsers,
     totalTasks,
     completedTasks,
-    activeTasks,
+    queuedTasks,
+    processingTasks,
     recentUsers,
     processingNow,
     recentGenerations,
@@ -129,7 +134,9 @@ export default async function AdminPage({
     prisma.user.count({ where: { is_admin: true } }),
     prisma.task.count(),
     prisma.task.count({ where: { status: "completed" } }),
-    prisma.task.count({ where: { status: { in: ACTIVE_TASK_STATUSES } } }),
+    // "queued" covers both waiting states (queued + pending); "processing" is counted alone so the two never overlap.
+    prisma.task.count({ where: { status: { in: ["queued", "pending"] } } }),
+    prisma.task.count({ where: { status: "processing" } }),
     prisma.user.findMany({
       where: userQuery
         ? {
@@ -274,14 +281,6 @@ export default async function AdminPage({
 
   const generationCountByUser = new Map(tasksByUser.map((item) => [item.user_id, item._count._all]));
 
-  const stats = [
-    { label: t("stats.users"), value: totalUsers },
-    { label: t("stats.admins"), value: adminUsers },
-    { label: t("stats.tasks"), value: totalTasks },
-    { label: t("stats.completed"), value: completedTasks },
-    { label: t("stats.processing"), value: activeTasks, live: activeTasks > 0 },
-  ];
-
   return (
     <main className="mx-auto w-full max-w-7xl space-y-6 px-4 py-8 sm:px-8 md:py-10">
       <div>
@@ -290,18 +289,52 @@ export default async function AdminPage({
         <Link href="/admin/announcements" className="mt-3 inline-block text-sm font-medium text-brand underline-offset-4 hover:underline">{t("manageAnnouncements")}</Link>
       </div>
 
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
-        {stats.map((stat) => (
-          <div key={stat.label} className={cn("rounded-2xl border bg-background p-4", stat.live && "border-brand/40 bg-brand-soft")}>
-            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              {stat.live && <span className="size-1.5 rounded-full bg-brand motion-safe:animate-pulse" />}{stat.label}
-            </p>
-            <p className="mt-1 font-display text-3xl font-bold tabular-nums">{stat.value}</p>
-          </div>
+      <AdminLiveStats
+        initialStats={{
+          users: totalUsers,
+          admins: adminUsers,
+          tasks: totalTasks,
+          completed: completedTasks,
+          processing: processingTasks,
+          queued: queuedTasks,
+        }}
+        initialUpdatedAt={renderedAt}
+      />
+
+      <nav aria-label={t("sections.navigation")} className="sticky top-0 z-10 -mx-4 flex flex-wrap gap-2 border-y bg-background/95 px-4 py-3 backdrop-blur sm:-mx-8 sm:px-8">
+        {(["overview", "ai", "tasks", "users", "additional"] as const).map((section) => (
+          <a key={section} href={`#${section}`} className="rounded-full border px-3 py-1.5 text-xs font-medium hover:bg-muted">
+            {t(`sections.${section}`)}
+          </a>
         ))}
+      </nav>
+
+      <section id="overview" aria-labelledby="overview-heading" className="scroll-mt-20 space-y-4">
+        <h2 id="overview-heading" className="text-lg font-semibold">{t("sections.overview")}</h2>
+        <Panel title={t("processing.title")} description={t("processing.description")}>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y">
+              <thead className="bg-muted/40"><tr><th className={th}>{t("columns.task")}</th><th className={th}>{t("columns.user")}</th><th className={th}>{t("columns.status")}</th><th className={th}>{t("columns.updated")}</th></tr></thead>
+              <tbody className="divide-y">
+                {processingNow.length === 0 ? (
+                  <tr><td className={cn(td, "text-muted-foreground")} colSpan={4}>{t("processing.empty")}</td></tr>
+                ) : processingNow.map((task) => (
+                  <tr key={task.id} className="hover:bg-muted/30">
+                    <TaskCell id={task.id} title={task.source?.title} untitled={t("untitledSource")} />
+                    <td className={cn(td, "text-muted-foreground")}>{task.user.email}</td>
+                    <td className={td}><StatusBadge status={task.status} /></td>
+                    <td className={cn(td, "whitespace-nowrap text-muted-foreground")}>{task.updated_at.toLocaleString(dateLocale)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
       </section>
 
-      <div id="feature-flags" className="scroll-mt-6">
+      <section id="additional" aria-labelledby="additional-heading" className="scroll-mt-20 space-y-4">
+      <h2 id="additional-heading" className="text-lg font-semibold">{t("sections.additional")}</h2>
+      <div id="feature-flags" className="scroll-mt-20">
         <Panel title={t("flags.title")} description={t("flags.description")}>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y">
@@ -331,7 +364,7 @@ export default async function AdminPage({
         </Panel>
       </div>
 
-      <div id="affiliates" className="scroll-mt-6">
+      <div id="affiliates" className="scroll-mt-20">
         <Panel
           title={t("creators.title")}
           description={t(pendingAffiliates === 1 ? "creators.pendingOne" : "creators.pendingOther", { count: pendingAffiliates })}
@@ -372,26 +405,10 @@ export default async function AdminPage({
         </Panel>
       </div>
 
-      <Panel title={t("processing.title")} description={t("processing.description")}>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y">
-            <thead className="bg-muted/40"><tr><th className={th}>{t("columns.task")}</th><th className={th}>{t("columns.user")}</th><th className={th}>{t("columns.status")}</th><th className={th}>{t("columns.updated")}</th></tr></thead>
-            <tbody className="divide-y">
-              {processingNow.length === 0 ? (
-                <tr><td className={cn(td, "text-muted-foreground")} colSpan={4}>{t("processing.empty")}</td></tr>
-              ) : processingNow.map((task) => (
-                <tr key={task.id} className="hover:bg-muted/30">
-                  <TaskCell id={task.id} title={task.source?.title} untitled={t("untitledSource")} />
-                  <td className={cn(td, "text-muted-foreground")}>{task.user.email}</td>
-                  <td className={td}><StatusBadge status={task.status} /></td>
-                  <td className={cn(td, "whitespace-nowrap text-muted-foreground")}>{task.updated_at.toLocaleString(dateLocale)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
+      </section>
 
+      <section id="users" aria-labelledby="users-heading" className="scroll-mt-20 space-y-4">
+      <h2 id="users-heading" className="text-lg font-semibold">{t("sections.users")}</h2>
       <div className="grid gap-6 xl:grid-cols-2">
         <Panel
           title={t("users.title")}
@@ -406,7 +423,8 @@ export default async function AdminPage({
                 aria-label={t("users.searchLabel")}
                 className="h-8 w-44 rounded-md border bg-background px-2.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
-              {userQuery && <Link href="/admin" className="text-xs font-medium underline-offset-4 hover:underline">{t("users.clearSearch")}</Link>}
+              {selectedUserId && <input type="hidden" name="user" value={selectedUserId} />}
+              {userQuery && <Link href={selectedUserId ? `/admin?user=${encodeURIComponent(selectedUserId)}` : "/admin"} className="text-xs font-medium underline-offset-4 hover:underline">{t("users.clearSearch")}</Link>}
             </form>
           }
         >
@@ -435,7 +453,7 @@ export default async function AdminPage({
                       )}
                     </td>
                     <td className={td}>
-                      <Link href={`/admin?user=${user.id}`} className="tabular-nums underline-offset-4 hover:underline" aria-label={t("users.viewTasks", { email: user.email })}>
+                      <Link href={`/admin?user=${encodeURIComponent(user.id)}${userQuery ? `&q=${encodeURIComponent(userQuery)}` : ""}`} className="tabular-nums underline-offset-4 hover:underline" aria-label={t("users.viewTasks", { email: user.email })}>
                         {generationCountByUser.get(user.id) || 0}
                       </Link>
                     </td>
@@ -456,7 +474,7 @@ export default async function AdminPage({
         <Panel
           title={t("explorer.title")}
           description={selectedUser ? t("explorer.viewing", { name: selectedUser.name || selectedUser.email, email: selectedUser.email }) : t("explorer.description")}
-          action={selectedUserId ? <Link href="/admin" className="text-xs font-medium underline-offset-4 hover:underline">{t("explorer.clear")}</Link> : undefined}
+          action={selectedUserId ? <Link href={userQuery ? `/admin?q=${encodeURIComponent(userQuery)}` : "/admin"} className="text-xs font-medium underline-offset-4 hover:underline">{t("explorer.clear")}</Link> : undefined}
         >
           {!selectedUser ? (
             <p className="px-5 py-10 text-center text-sm text-muted-foreground">{t("explorer.selectUser")}</p>
@@ -482,6 +500,10 @@ export default async function AdminPage({
         </Panel>
       </div>
 
+      </section>
+
+      <section id="tasks" aria-labelledby="tasks-heading" className="scroll-mt-20 space-y-4">
+      <h2 id="tasks-heading" className="text-lg font-semibold">{t("sections.tasks")}</h2>
       <Panel title={t("recent.title")} description={t("recent.description")}>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y">
@@ -501,6 +523,9 @@ export default async function AdminPage({
         </div>
       </Panel>
 
+      </section>
+      <section id="ai" aria-labelledby="ai-heading" className="scroll-mt-20 space-y-4">
+      <h2 id="ai-heading" className="text-lg font-semibold">{t("sections.ai")}</h2>
       <Panel title={t("runtime.title")} description={t("runtime.description")}>
         {runtimeSettings.error ? (
           <div className="px-5 py-5 text-sm text-red-700 dark:text-red-400">{runtimeSettings.error}</div>
@@ -512,6 +537,7 @@ export default async function AdminPage({
       <Panel title={t("llm.title")} description={t("llm.description")}>
         <LlmSettingsPanel />
       </Panel>
+      </section>
     </main>
   );
 }

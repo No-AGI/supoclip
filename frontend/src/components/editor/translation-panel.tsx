@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -57,6 +57,7 @@ export function TranslationPanel({
   update,
 }: Props) {
   const t = useTranslations("editor");
+  const locale = useLocale();
   const sourceWords = useMemo(
     () => doc.translation?.sourceWords ?? doc.words,
     [doc.translation, doc.words],
@@ -67,8 +68,12 @@ export function TranslationPanel({
   const [manual, setManual] = useState("");
   const [needsReview, setNeedsReview] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [hookTitle, setHookTitle] = useState(doc.localizedHookTitle ?? doc.hookTitle ?? "");
+  const [restoreHook, setRestoreHook] = useState(false);
+  const hookRequest = useRef(0);
 
   useEffect(() => {
+    hookRequest.current += 1;
     if (!open) return;
     const existing = doc.translation?.phrases;
     setRows(
@@ -78,6 +83,8 @@ export function TranslationPanel({
     );
     setNeedsReview(false);
     setManual("");
+    setHookTitle(doc.localizedHookTitle ?? doc.hookTitle ?? "");
+    setRestoreHook(false);
   }, [open, doc.translation, phrases]);
 
   const setRow = (index: number, text: string) =>
@@ -163,6 +170,7 @@ export function TranslationPanel({
         ),
       "translation",
     );
+    update((d) => ({ ...d, localizedHookTitle: restoreHook ? null : hookTitle }), "hook-title");
     onOpenChange(false);
     toast.success(t("captions.translationApplied"));
   };
@@ -176,6 +184,27 @@ export function TranslationPanel({
             {t("captions.translationDescription")}
           </DialogDescription>
         </DialogHeader>
+        {!!doc.hookTitle?.trim() && (
+          <div className="space-y-2 rounded-lg border p-3">
+            <label className="text-sm font-medium" htmlFor="localized-hook-title">{locale === "ru" ? "Переведённый заголовок" : t("captions.localizedHookTitle")}</label>
+            <div className="flex gap-2">
+              <Input id="localized-hook-title" maxLength={200} value={hookTitle} onChange={(event) => { hookRequest.current += 1; setRestoreHook(false); setHookTitle(event.target.value); }} />
+              <Button size="sm" variant="outline" disabled={busy} onClick={async () => {
+                const request = ++hookRequest.current;
+                setBusy(true);
+                try {
+                  const response = await fetch(`${endpoint}/translate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phrases: [{ text: doc.hookTitle }], targetLanguage: TARGET_LANGUAGE }) });
+                  const payload = parseTranslationResponse(await response.text());
+                  if (!response.ok || !payload.ok || !payload.translations[0]) throw new Error(payload.message ?? t("captions.translationFailed"));
+                  if (request === hookRequest.current) setHookTitle(payload.translations[0].slice(0, 200));
+                } catch (error) { if (request === hookRequest.current) toast.error(editorMessage(t, (error as Error).message)); }
+                finally { setBusy(false); }
+              }}>{t("captions.translationRun")}</Button>
+            </div>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => update((d) => ({ ...d, localizedHookTitle: restoreHook ? null : hookTitle }), "hook-title")}>{t("captions.translationApply")}</Button>
+            {doc.localizedHookTitle != null && <Button size="sm" variant="ghost" onClick={() => { hookRequest.current += 1; setRestoreHook(true); setHookTitle(doc.hookTitle ?? ""); }}>{locale === "ru" ? "Восстановить исходный заголовок" : t("captions.restoreHookTitle")}</Button>}
+          </div>
+        )}
         <Tabs
           value={mode}
           onValueChange={(value) => setMode(value as "auto" | "manual")}

@@ -104,9 +104,12 @@ async def test_streams_existing_clips_in_order_with_readable_names(client, redis
     db.close.assert_awaited()
     with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
         assert archive.testzip() is None
-        assert archive.namelist() == ["01-why-sleep-matters.mp4", "02-clip-abcdef12.mp4"]
-        assert archive.read("01-why-sleep-matters.mp4") == b"first clip " * 1000
-        assert archive.read("02-clip-abcdef12.mp4") == b"third clip"
+        assert archive.namelist() == [
+            "clip_01 - Why Sleep Matters! - Morning Routine.mp4",
+            "clip_03 - Clip - Morning Routine.mp4",
+        ]
+        assert archive.read("clip_01 - Why Sleep Matters! - Morning Routine.mp4") == b"first clip " * 1000
+        assert archive.read("clip_03 - Clip - Morning Routine.mp4") == b"third clip"
     # The slot is freed once the stream ends.
     assert redis_store == {}
 
@@ -213,7 +216,7 @@ def test_other_workflows_keep_clip_order_names():
     clips = [{"id": "1", "hook_title": "B", "part_number": None}, {"id": "2", "hook_title": "A"}]
 
     assert clip_archive.order_for_archive(clips, "topic") == clips
-    assert clip_archive.archive_entry_names(clips) == ["01-b.mp4", "02-a.mp4"]
+    assert clip_archive.archive_entry_names(clips) == ["clip_01 - B.mp4", "clip_02 - A.mp4"]
 
 
 def test_entry_names_are_ordered_unique_and_keep_non_latin_titles():
@@ -226,11 +229,11 @@ def test_entry_names_are_ordered_unique_and_keep_non_latin_titles():
     ])
 
     assert names == [
-        "01-same-title.mp4",
-        "02-same-title.mp4",
-        "03-睡眠が大事な理由.mp4",
-        "04-etc-passwd.mp4",
-        "05-clip-5.mp4",
+        "clip_01 - Same title.mp4",
+        "clip_02 - Same title.mp4",
+        "clip_03 - 睡眠が大事な理由.mp4",
+        "clip_04 - etc passwd.mp4",
+        "clip_05 - Clip.mp4",
     ]
     assert len(set(names)) == len(names)
 
@@ -257,7 +260,7 @@ async def test_object_storage_clips_are_streamed_in_chunks(tmp_path):
     ]
 
     entries = clip_archive.resolve_entries(clips, storage)
-    assert [(entry.name, entry.size) for entry in entries] == [("01-stored.mp4", len(payload))]
+    assert [(entry.name, entry.size) for entry in entries] == [("clip_01 - Stored.mp4", len(payload))]
 
     chunks = [
         chunk async for chunk in clip_archive.stream_archive(
@@ -268,10 +271,10 @@ async def test_object_storage_clips_are_streamed_in_chunks(tmp_path):
     # Bytes leave as each chunk is read, not once the whole clip is in memory.
     assert len(chunks) >= 6
     with zipfile.ZipFile(io.BytesIO(b"".join(chunks))) as archive:
-        info = archive.getinfo("01-stored.mp4")
+        info = archive.getinfo("clip_01 - Stored.mp4")
         assert info.compress_type == zipfile.ZIP_DEFLATED
         assert info.flag_bits & 0x08  # sizes follow the data
-        assert archive.read("01-stored.mp4") == payload
+        assert archive.read("clip_01 - Stored.mp4") == payload
     # No local copy is staged in the media cache.
     assert not (tmp_path / "media-cache").exists()
 

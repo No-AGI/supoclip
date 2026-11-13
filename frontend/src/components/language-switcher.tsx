@@ -15,6 +15,7 @@ const NAMES: Record<Locale, string> = {
   de: "Deutsch",
   zh: "中文",
   id: "Bahasa Indonesia",
+  ru: "Русский",
 };
 
 export function LanguageSwitcher() {

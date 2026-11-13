@@ -194,6 +194,8 @@ class EditDocument(Model):
     muted: bool = False
     # AI headline burned into the top safe area for the first seconds, as generated.
     hookTitle: str = Field(default="", max_length=200)
+    # Optional localized/editable replacement; hookTitle remains the source.
+    localizedHookTitle: str | None = Field(default=None, max_length=200)
     hookTiming: HookTiming | None = None
     textTransforms: dict[Literal["hook", "captions"], TextTransform] = Field(default_factory=dict)
     captionTransforms: dict[Annotated[str, Field(max_length=300)], CaptionTransform] = Field(default_factory=dict, max_length=5000)
@@ -444,7 +446,7 @@ def write_ass(path: Path, document: EditDocument, width: int, height: int):
         # Highlights are per occurrence and already include the generated emphasis.
         emphasis_indices=[i for i, w in enumerate(words) if w["highlight"]],
         wrap_lines=True,
-        hook_title=document.hookTitle.strip() or None,
+        hook_title=(document.localizedHookTitle if document.localizedHookTitle is not None else document.hookTitle).strip() or None,
         caption_placements=placements,
         caption_chunk_starts=starts,
     )

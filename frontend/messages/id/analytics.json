@@ -45,5 +45,9 @@
     "date": "Tanggal",
     "views": "Penayangan",
     "viewCount": "{count, plural, one {{formatted} penayangan} other {{formatted} penayangan}}"
-  }
+  },
+  "clip": "ID clip",
+  "clipPerformance": "Performa per clip",
+  "snapshotTime": "Rentang snapshot metrik",
+  "measuredPosts": "Posting terukur"
 }

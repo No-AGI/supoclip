@@ -48,8 +48,34 @@ it("drafts a social caption when opening the scheduling form", async () => {
   fireEvent.click(screen.getByRole("button", { name: /publish/i }));
   await waitFor(() => expect(screen.getByLabelText("Caption")).toHaveValue("An engaging caption"));
   expect(fetch).toHaveBeenCalledWith("/api/social/captions", expect.objectContaining({
-    body: JSON.stringify({ task_id: "task-1", clip_id: "clip-1", provider: "youtube" }),
+    body: JSON.stringify({ task_id: "task-1", clip_id: "clip-1", provider: "youtube", target_language: null }),
   }));
+});
+
+it("requests a Russian caption when selected", async () => {
+  render(<ClipPublishButton taskId="task-1" clip={clip} connections={[connection()]} providers={[provider()]} onChanged={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: /publish/i }));
+  await screen.findByRole("button", { name: "Generate caption" });
+  fireEvent.click(await screen.findByRole("combobox", { name: "Caption language" }));
+  fireEvent.click(await screen.findByRole("option", { name: "Russian" }));
+  fireEvent.click(screen.getByRole("button", { name: "Generate caption" }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/social/captions", expect.objectContaining({
+    body: JSON.stringify({ task_id: "task-1", clip_id: "clip-1", provider: "youtube", target_language: "Russian" }),
+  })));
+});
+
+it("ignores a caption response after the requested language changes", async () => {
+  let finishCaption!: (response: Response) => void;
+  vi.stubGlobal("fetch", vi.fn((url: string) => url === "/api/social/captions"
+    ? new Promise<Response>((resolve) => { finishCaption = resolve; })
+    : Promise.resolve(Response.json({ privacy_levels: ["public", "private"] }))));
+  render(<ClipPublishButton taskId="task-1" clip={clip} connections={[connection()]} providers={[provider()]} onChanged={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: /publish/i }));
+  fireEvent.click(await screen.findByRole("combobox", { name: "Caption language" }));
+  fireEvent.click(await screen.findByRole("option", { name: "Russian" }));
+  finishCaption(Response.json({ caption: "Original language result" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Generate caption" })).toBeEnabled());
+  expect(screen.getByLabelText("Caption")).toHaveValue("Transcript");
 });
 
 it("preserves manual caption edits while generation is pending", async () => {
@@ -305,7 +331,7 @@ it("does not choose an account that requires reconnection", async () => {
   expect(screen.getByRole("checkbox", { name: /YouTube Shorts · My Channel/ })).toBeDisabled();
   expect(screen.getByRole("checkbox", { name: /TikTok · My TikTok/ })).toBeChecked();
   await waitFor(() => expect(screen.getByLabelText("Caption")).toHaveValue("A shared caption"));
-  expect(fetch).toHaveBeenCalledWith("/api/social/captions", expect.objectContaining({ body: JSON.stringify({ task_id: "task-1", clip_id: "clip-1", provider: "tiktok" }) }));
+  expect(fetch).toHaveBeenCalledWith("/api/social/captions", expect.objectContaining({ body: JSON.stringify({ task_id: "task-1", clip_id: "clip-1", provider: "tiktok", target_language: null }) }));
 });
 
 it("validates a shared title before sending any selected account", async () => {

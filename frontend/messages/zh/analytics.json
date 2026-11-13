@@ -45,5 +45,9 @@
     "date": "日期",
     "views": "观看",
     "viewCount": "{count, plural, one {{formatted} 次观看} other {{formatted} 次观看}}"
-  }
+  },
+  "clip": "片段 ID",
+  "clipPerformance": "按片段查看表现",
+  "snapshotTime": "指标快照时间范围",
+  "measuredPosts": "已测量发布数"
 }

@@ -1,0 +1,7 @@
+{
+  "brand": "SupoClip", "makeYourOwn": "Создать свои клипы", "unavailableTitle": "Ссылка недоступна", "unavailable": "Эта общая ссылка недоступна", "createOwn": "Создайте свои клипы", "eyebrow": "Генерация по общей ссылке",
+  "summary": "{count, plural, one {# клип} few {# клипа} many {# клипов} other {# клипа}} · {duration} лучших моментов",
+  "topVirality": "лучшая оценка вирусного потенциала", "ctaTitle": "Превратите свои длинные видео в такие клипы.", "ctaBody": "SupoClip находит лучшие моменты, кадрирует говорящего и добавляет субтитры. Открытый код и бесплатная установка на своём сервере.", "try": "Попробовать SupoClip",
+  "workflowBadge": {"series": "Серия · {count, plural, one {# часть} few {# части} many {# частей} other {# части}}", "topic": "Тема: {topic}", "recap": "Обзор", "trailer": "Трейлер"},
+  "partLabel": "Часть {n}", "totalDuration": "Всего: {duration}"
+}

@@ -119,6 +119,18 @@ def test_cache_key_includes_analysis_prompt_version():
     assert cache_key == expected
 
 
+def test_analysis_cache_key_isolated_by_opt_in_clip_profile():
+    source_key = TaskService._build_cache_key("upload://one.mp4", "upload", "fast")
+    assert TaskService._build_analysis_cache_key(source_key) == source_key
+    assert TaskService._build_analysis_cache_key(source_key, clip_profile="gaming_stream") != source_key
+    assert TaskService._build_analysis_cache_key(source_key, clip_profile="gaming_stream") != (
+        TaskService._build_analysis_cache_key(source_key, clip_profile="general")
+    )
+    assert TaskService._build_analysis_cache_key(
+        source_key, "short", "gaming_stream"
+    ) != TaskService._build_analysis_cache_key(source_key, "short", "general")
+
+
 @pytest.mark.asyncio
 async def test_update_clip_captions_passes_stored_task_style(isolated_clip_edits, monkeypatch, tmp_path):
     config = Config()
@@ -262,6 +274,73 @@ async def test_process_task_uses_scale_youtube_duration_allowance(monkeypatch):
         ]
         == 10800
     )
+
+
+@pytest.mark.asyncio
+async def test_process_task_loads_timed_cache_only_for_user_owned_youtube_source(monkeypatch):
+    service = build_task_service()
+    service.config.monetization_enabled = False
+    payload = {"version": 2, "text": "Timed transcript", "words": [{"text": "Timed", "start": 0, "end": 500}]}
+    cache_get = AsyncMock(return_value=payload)
+    cache_save = AsyncMock()
+    monkeypatch.setattr(
+        task_service_module.TimedTranscriptCacheRepository, "get", cache_get
+    )
+    monkeypatch.setattr(
+        task_service_module.TimedTranscriptCacheRepository, "save", cache_save
+    )
+
+    class FakeBillingService:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def get_usage_summary(self, _user_id):
+            return {}
+
+    monkeypatch.setattr(task_service_module, "BillingService", FakeBillingService)
+
+    await service.process_task(
+        task_id="task-1",
+        url="https://www.youtube.com/watch?v=demo",
+        source_type="youtube",
+        user_id="user-a",
+    )
+
+    call_kwargs = service.video_service.process_video_complete.await_args.kwargs
+    loaded = await call_kwargs["timed_transcript_loader"]("source-content-hash")
+    assert loaded == payload
+    assert cache_get.await_args.args[1] == "user-a"
+    await call_kwargs["timed_transcript_callback"]("source-content-hash", payload)
+    cache_save.assert_awaited_once()
+
+    service.task_repo.save_workflow_plan = AsyncMock()
+    await call_kwargs["source_identity_changed"]()
+    assert service.task_repo.save_workflow_plan.await_args.args[2] is None
+    assert service.checkpoint_repo.save.await_args.args[3]["analysis"] is None
+
+
+@pytest.mark.asyncio
+async def test_process_task_skips_timed_cache_for_non_youtube_sources(monkeypatch):
+    service = build_task_service()
+    cache_get = AsyncMock()
+    monkeypatch.setattr(
+        task_service_module.TimedTranscriptCacheRepository, "get", cache_get
+    )
+
+    class FakeBillingService:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def get_usage_summary(self, _user_id):
+            return {}
+
+    monkeypatch.setattr(task_service_module, "BillingService", FakeBillingService)
+
+    await service.process_task(
+        task_id="task-1", url="https://twitch.tv/channel", source_type="twitch", user_id="user-a"
+    )
+
+    cache_get.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,4 @@
-{
+{"sections":{"overview":"Visão geral","ai":"IA / provedores","tasks":"Tarefas","users":"Usuários","additional":"Adicional","navigation":"Seções administrativas"},
   "title": "Painel de administração",
   "subtitle": "Gerencie usuários e acompanhe a atividade da plataforma.",
   "manageAnnouncements": "Gerenciar anúncios",
@@ -190,6 +190,22 @@
     "result": "Resultado",
     "ok": "Respondeu",
     "answeredBy": "Respondido por",
-    "testFailed": "Não foi possível verificar o modelo"
+    "testFailed": "Não foi possível verificar o modelo",
+    "connectionsTitle": "Ligações LLM personalizadas",
+    "connectionsDescription": "Adicione um provedor compatível com OpenAI. As chaves são guardadas com segurança e não voltam a ser exibidas.",
+    "connectionsLoadFailed": "Não foi possível carregar as ligações",
+    "connectionSaveFailed": "Não foi possível guardar a ligação",
+    "connectionDeleteFailed": "Não foi possível eliminar a ligação",
+    "connectionTestFailed": "O teste da ligação falhou",
+    "connectionPreset": "Predefinição do provedor",
+    "connectionCustom": "URL personalizada",
+    "connectionName": "Nome da ligação",
+    "connectionBaseUrl": "URL base",
+    "connectionModel": "Modelo",
+    "connectionApiKey": "Chave API",
+    "connectionSave": "Guardar ligação",
+    "connectionTest": "Testar ligação",
+    "connectionTestOk": "Ligação bem-sucedida em {seconds}s",
+    "connectionAddFallback": "Adicionar à cadeia de fallback"
   }
 }

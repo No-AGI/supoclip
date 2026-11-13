@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { LlmConnections } from "./llm-connections";
 
 interface KeyMark {
   fingerprint: string;
@@ -341,6 +342,8 @@ export function LlmSettingsPanel() {
           </div>
         </section>
       </div>
+
+      <LlmConnections onAddFallback={(model) => setFallbacks((current) => current.includes(model) ? current : [...current, model])} />
 
       <div className="px-5 py-5">
         <div className="flex flex-wrap items-center gap-2">

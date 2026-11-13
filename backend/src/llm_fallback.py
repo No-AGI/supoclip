@@ -190,6 +190,8 @@ async def run_with_fallback(
 
     for model in chain:
         provider = model_provider(model)
+        from .custom_llm_connections import connection_provider
+        custom = connection_provider(provider)
         keys = [key for key in keys_for(model) if key] or [None]
         for key in keys:
             remaining = deadline - time.monotonic()
@@ -210,14 +212,16 @@ async def run_with_fallback(
                         seconds=time.monotonic() - attempt_started,
                         ok=False,
                         kind=kind,
-                        error=_describe(exc),
+                        error=type(exc).__name__ if custom else _describe(exc),
                     )
                 )
                 logger.warning(
-                    "Cannot build the model %s: %s", model, _describe(exc)
+                    "Cannot build the model %s: %s", model, type(exc).__name__ if custom else _describe(exc)
                 )
                 last_error, last_kind = exc, kind
                 if kind is ErrorKind.FATAL:
+                    if custom:
+                        raise ModelUnavailableError("Custom model connection failed", attempts=tuple(attempts)) from None
                     raise
                 break  # the next model may be a valid one
 
@@ -252,7 +256,7 @@ async def run_with_fallback(
                         seconds=time.monotonic() - attempt_started,
                         ok=False,
                         kind=kind,
-                        error=_describe(exc),
+                        error=type(exc).__name__ if custom else _describe(exc),
                     )
                 )
                 last_error, last_kind = exc, kind
@@ -260,9 +264,11 @@ async def run_with_fallback(
                     "The model %s failed (%s): %s",
                     model,
                     kind.value,
-                    _describe(exc),
+                    type(exc).__name__ if custom else _describe(exc),
                 )
                 if kind is ErrorKind.FATAL:
+                    if custom:
+                        raise ModelUnavailableError("Custom model connection failed", attempts=tuple(attempts)) from None
                     raise
                 if kind in (ErrorKind.AUTH, ErrorKind.QUOTA):
                     continue  # the next key of the same provider
@@ -285,6 +291,11 @@ async def run_with_fallback(
                 return FallbackResult(
                     value=value, model=model, attempts=tuple(attempts)
                 )
+            finally:
+                if custom:
+                    client = getattr(getattr(agent, "model", None), "_supoclip_http_client", None)
+                    if client is not None:
+                        await client.aclose()
 
     message = (
         f"No model of the chain answered: {last_error}"
@@ -292,6 +303,8 @@ async def run_with_fallback(
         else "No model of the chain answered"
     )
     if last_error is not None:
+        if attempts and connection_provider(attempts[-1].provider):
+            raise ModelUnavailableError("Custom model connection failed", attempts=tuple(attempts)) from None
         # The engine never hides the real error: the failure of the last
         # attempt is what the caller sees. The attempts travel with it, so a
         # caller can still tell a busy model from a broken one.

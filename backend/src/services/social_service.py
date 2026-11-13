@@ -1086,6 +1086,10 @@ class SocialService:
             "personalization_active": measured >= min_posts,
         }
 
+    async def get_clip_level_performance(self, user_id: str) -> List[Dict[str, Any]]:
+        """Return latest-snapshot metrics grouped by clip and platform."""
+        return await self.repo.get_clip_level_performance(self.db, user_id)
+
     async def get_views_timeseries(self, user_id: str, days: int = 30) -> Dict[str, Any]:
         """Daily new views for the analytics chart, with every day in the window present."""
         days = max(1, min(int(days), 365))

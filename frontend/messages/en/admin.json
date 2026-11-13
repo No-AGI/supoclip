@@ -1,4 +1,4 @@
-{
+{"sections":{"overview":"Overview","ai":"AI / providers","tasks":"Tasks","users":"Users","additional":"Additional","navigation":"Admin page sections"},
   "title": "Admin Dashboard",
   "subtitle": "Manage users and monitor overall platform activity.",
   "manageAnnouncements": "Manage announcements",
@@ -190,6 +190,22 @@
     "result": "Result",
     "ok": "Answered",
     "answeredBy": "Answered by",
-    "testFailed": "The model could not be checked"
+    "testFailed": "The model could not be checked",
+    "connectionsTitle": "Custom LLM connections",
+    "connectionsDescription": "Add an OpenAI-compatible provider. Keys are stored securely and never shown again.",
+    "connectionsLoadFailed": "Could not load custom connections",
+    "connectionSaveFailed": "Could not save connection",
+    "connectionDeleteFailed": "Could not delete connection",
+    "connectionTestFailed": "Connection test failed",
+    "connectionPreset": "Provider preset",
+    "connectionCustom": "Custom URL",
+    "connectionName": "Connection name",
+    "connectionBaseUrl": "Base URL",
+    "connectionModel": "Model",
+    "connectionApiKey": "API key",
+    "connectionSave": "Save connection",
+    "connectionTest": "Test connection",
+    "connectionTestOk": "Connection succeeded in {seconds}s",
+    "connectionAddFallback": "Add to fallback chain"
   }
 }

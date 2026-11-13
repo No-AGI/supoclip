@@ -9,6 +9,7 @@ import {
   outputSize,
   replaceWords,
   editDuration,
+  effectiveHookTitle,
   textTransform,
   type TextLayer,
   type CaptionLook,
@@ -91,7 +92,7 @@ function wrapCaptionWords(ctx: CanvasRenderingContext2D, words: CaptionWord[], u
 export function textEditorLayout(ctx: CanvasRenderingContext2D, doc: EditDocument, width: number, height: number, time: number, layer: TextLayer, draft?: TextDraft) {
   const group = captionAt(doc, time) ?? [];
   const transform: CaptionTransform = group.length ? captionTransform(doc, group) : textTransform(doc, "captions");
-  const hook = hookTitleLayout(draft?.hookText === undefined ? doc : { ...doc, hookTitle: draft.hookText }, width, height);
+  const hook = hookTitleLayout(draft?.hookText === undefined ? doc : { ...doc, localizedHookTitle: draft.hookText }, width, height);
   const size = layer === "hook" ? hook.px : Math.max(1, Math.round((transform.size ?? doc.captions.size) * width * transform.scale / 1080));
   const fontSize = setAssFont(ctx, doc.captions.font, size);
   const wrapWidth = Math.max(1, layer === "hook" ? hook.usable : width - 120);
@@ -108,7 +109,7 @@ export type TextEditorLayout = ReturnType<typeof textEditorLayout>;
 export function formatHookEditorText(doc: EditDocument, width: number, height: number, text: string) {
   const words = text.trim().split(/\s+/).filter(Boolean);
   if (!words.length) return text;
-  const layout = hookTitleLayout({ ...doc, hookTitle: words.join(" ") }, width, height);
+  const layout = hookTitleLayout({ ...doc, localizedHookTitle: words.join(" ") }, width, height);
   let cursor = 0;
   return layout.lines.map(line => { const count = line.trim().split(/\s+/).length; const value = words.slice(cursor, cursor + count).join(" "); cursor += count; return value; }).join("\n") + (/\s$/.test(text) ? " " : "");
 }
@@ -210,8 +211,8 @@ export function drawEditorTextLayer(
   ctx.save();
   ctx.scale(width / out.width, height / out.height);
   if (layer !== "hook" && doc.captions.enabled) drawCaptions(ctx, doc, out, time, look, draft?.captionWords);
-  const hookDocument = draft?.hookText === undefined ? doc : { ...doc, hookTitle: draft.hookText };
-  if (layer !== "captions" && hookDocument.hookTitle?.trim()) drawHookTitle(ctx, hookDocument, out, time, look);
+  const hookDocument = draft?.hookText === undefined ? doc : { ...doc, localizedHookTitle: draft.hookText };
+  if (layer !== "captions" && effectiveHookTitle(hookDocument).trim()) drawHookTitle(ctx, hookDocument, out, time, look);
   ctx.restore();
 }
 
@@ -348,7 +349,7 @@ function balanceTitle(words: string[], maxChars: number) {
 }
 
 export function hookTitleLayout(doc: EditDocument, width: number, height: number) {
-  const title = doc.hookTitle?.trim() ?? "";
+  const title = effectiveHookTitle(doc).trim();
   const text = doc.captions.uppercase ? title.toUpperCase() : title;
   const captionPx = Math.max(1, Math.round((doc.captions.size * width) / 1080));
   const basePx = Math.max(34, Math.min(66, Math.floor(captionPx * 0.82)));
@@ -439,8 +440,8 @@ export interface TextBounds { x: number; y: number; width: number; height: numbe
 export function textLayerBounds(ctx: CanvasRenderingContext2D, doc: EditDocument, width: number, height: number, time: number, layer: TextLayer, looks?: Record<string, CaptionLook>, draft?: TextDraft): TextBounds | null {
   const look = cachedLook(doc, looks);
   if (layer === "hook") {
-    if (!doc.hookTitle?.trim()) return null;
-    const { lines, px, top, x } = hookTitleLayout(draft?.hookText === undefined ? doc : { ...doc, hookTitle: draft.hookText }, width, height);
+    if (!effectiveHookTitle(doc).trim()) return null;
+    const { lines, px, top, x } = hookTitleLayout(draft?.hookText === undefined ? doc : { ...doc, localizedHookTitle: draft.hookText }, width, height);
     setAssFont(ctx, doc.captions.font, px);
     const pad = Math.max(5, Math.round(px * (look.strokeWidth || 2) / 26)) + 3;
     const w = Math.max(...lines.map(line => ctx.measureText(line).width)) + pad * 2;
