@@ -7,7 +7,7 @@ import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from ...media_storage import MediaStorage, STORAGE_ERRORS, media_work
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,8 @@ from ...analytics import capture_clip_export
 from ...clip_naming import clip_download_filename, clip_position
 from ...database import get_db
 from ...editor_document import EditDocument, RevisionConflict
+from ...editor_document import caption_chunk_starts, mapped_words
+from ...media.srt import build_srt
 from ...editor_state import (
     get_store,
     new_job_id,
@@ -211,6 +213,67 @@ async def media(
         session.directory / asset,
         media_type="video/mp4" if asset.endswith("mp4") else "image/jpeg",
         headers={"Cache-Control": "private, no-cache"},
+    )
+
+
+@router.get("/{task_id}/clips/{clip_id}/editor/captions.srt")
+async def download_srt(
+    task_id: str,
+    clip_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    """Download subtitles for the current saved editor draft."""
+    task, clip, session = await owned_context(
+        request, db, task_id, clip_id, include_download_position=True
+    )
+    state = await session.state()
+    if state.get("status") != "ready":
+        raise HTTPException(409, "Prepare the editor preview before downloading subtitles")
+    draft = state.get("draft")
+    if not isinstance(draft, dict) or not isinstance(draft.get("document"), dict):
+        raise HTTPException(409, "Save the editor draft before downloading subtitles")
+    try:
+        document = EditDocument.model_validate(draft["document"]).validate_duration(state["duration"])
+    except (ValueError, ValidationError) as exc:
+        raise HTTPException(409, "The saved editor draft is invalid") from exc
+    if not document.captions.enabled:
+        raise HTTPException(409, "Captions are disabled in the saved editor draft")
+
+    words = mapped_words(document)
+    if not words:
+        raise HTTPException(409, "The saved editor draft has no caption words")
+    starts = caption_chunk_starts(words, document.captions.wordsPerLine, document.translation)
+    groups = []
+    for position, start in enumerate(starts):
+        stop = starts[position + 1] if position + 1 < len(starts) else len(words)
+        group = words[start:stop]
+        text = " ".join(word["text"] for word in group)
+        groups.append({
+            "text": text.upper() if document.captions.uppercase else text,
+            "start": group[0]["start"],
+            "end": group[-1]["end"],
+        })
+    if not groups:
+        raise HTTPException(409, "The saved editor draft has no caption groups")
+    try:
+        content = build_srt(groups)
+    except ValueError as exc:
+        raise HTTPException(409, "The saved captions have invalid or overlapping timings") from exc
+    filename = clip_download_filename(
+        clip, task.get("source_title"),
+        position=clip.get("_download_position"), preset="editor",
+    )
+    filename = filename[:-4] + ".srt" if filename.lower().endswith(".mp4") else "captions.srt"
+    from urllib.parse import quote
+
+    return Response(
+        content,
+        media_type="application/x-subrip; charset=utf-8",
+        headers={
+            "Cache-Control": "private, no-store",
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
+        },
     )
 
 

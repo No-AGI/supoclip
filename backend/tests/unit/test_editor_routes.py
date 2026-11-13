@@ -120,6 +120,65 @@ async def test_export_snapshot_cancel_and_private_download(client, editor_store)
     ).status_code == 404
 
 
+async def test_srt_download_uses_only_the_saved_draft_and_phrase_groups(client):
+    http, _, doc, _ = client
+    translated = {
+        **doc,
+        "words": [
+            {"id": "t1", "start": 0.1, "end": 0.3, "text": "Добрый"},
+            {"id": "t2", "start": 0.3, "end": 0.55, "text": "день!"},
+            {"id": "t3", "start": 1.8, "end": 2, "text": "Пока."},
+        ],
+        "captions": {"wordsPerLine": 4},
+        "translation": {
+            "sourceLanguage": "en",
+            "targetLanguage": "ru",
+            "phrases": [
+                {"id": "p1", "start": 0.1, "end": 0.55, "wordIds": ["t1", "t2"]},
+                {"id": "p2", "start": 1.8, "end": 2, "wordIds": ["t3"]},
+            ],
+        },
+    }
+    saved = await http.patch(
+        "/tasks/task/clips/clip/editor",
+        json={"basis": "clip.mp4", "revision": 0, "document": translated},
+    )
+    assert saved.status_code == 200
+    response = await http.get("/tasks/task/clips/clip/editor/captions.srt")
+    assert response.status_code == 200
+    assert response.headers["content-disposition"].endswith(".srt")
+    assert response.text == (
+        "1\n00:00:00,100 --> 00:00:00,550\nДобрый день!\n\n"
+        "2\n00:00:01,800 --> 00:00:02,000\nПока.\n"
+    )
+
+
+async def test_srt_download_rejects_disabled_or_missing_saved_captions(client):
+    http, _, doc, _ = client
+    no_words = await http.get("/tasks/task/clips/clip/editor/captions.srt")
+    assert no_words.status_code == 409
+    disabled = {
+        **doc,
+        "words": [{"id": "w", "start": 0.1, "end": 0.5, "text": "Hello."}],
+        "captions": {"enabled": False},
+    }
+    response = await http.patch(
+        "/tasks/task/clips/clip/editor",
+        json={"basis": "clip.mp4", "revision": 0, "document": disabled},
+    )
+    assert response.status_code == 200
+    assert (await http.get("/tasks/task/clips/clip/editor/captions.srt")).status_code == 409
+
+
+async def test_srt_download_requires_clip_ownership(client, monkeypatch):
+    http, _, _, _ = client
+    monkeypatch.setattr(
+        "src.api.routes.tasks._get_user_id_from_headers",
+        AsyncMock(return_value="outsider"),
+    )
+    assert (await http.get("/tasks/task/clips/clip/editor/captions.srt")).status_code == 403
+
+
 async def test_failed_enqueue_is_retryable(client, monkeypatch):
     http, service, doc, directory = client
     monkeypatch.setattr(

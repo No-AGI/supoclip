@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   AlertCircle,
   Cloud,
@@ -96,6 +96,7 @@ export function ExportPanel({
   save,
 }: Props) {
   const t = useTranslations("editor");
+  const locale = useLocale();
   const userId = useSession().data?.user?.id;
   const [preset, setPreset] = useState("tiktok"),
     [mode, setMode] = useState("server"),
@@ -332,6 +333,12 @@ export function ExportPanel({
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
+        <p className="text-xs text-muted-foreground">
+          <a className="underline" href={`${endpoint}/captions.srt`}>
+            {locale === "ru" ? "Скачать субтитры сохранённого черновика (.srt)" : "Download subtitles from the saved draft (.srt)"}
+          </a>
+          {locale === "ru" ? " — сохраните изменения перед скачиванием." : " — save changes before downloading."}
+        </p>
         {busy ? (
           <div className="space-y-2 rounded-lg border p-3">
             <div className="flex items-center justify-between text-sm">
