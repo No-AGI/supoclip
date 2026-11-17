@@ -248,3 +248,74 @@ def test_crop_window_handles_a_tall_source():
     box = ve.crop_window_for_centroid(0.5, 1080, 1920)
     assert box["width"] == 1080
     assert box["height"] <= 1920
+
+
+def test_signatures_find_a_shared_frame():
+    frames = np.zeros((6, ve.THUMB_HEIGHT, ve.THUMB_WIDTH), dtype=np.uint8)
+    frames[:, :, :20] = 220
+    repeated = np.zeros((6, ve.THUMB_HEIGHT, ve.THUMB_WIDTH), dtype=np.uint8)
+    repeated[:, :, 40:] = 60
+    repeated[3] = frames[0]  # same shot re-used at another time
+    assert ve.windows_share_footage(
+        ve.frame_signatures(frames), ve.frame_signatures(repeated)
+    )
+
+
+def test_different_footage_is_not_a_duplicate():
+    left = np.zeros((6, ve.THUMB_HEIGHT, ve.THUMB_WIDTH), dtype=np.uint8)
+    left[:, :, :20] = 220
+    right = np.zeros((6, ve.THUMB_HEIGHT, ve.THUMB_WIDTH), dtype=np.uint8)
+    right[:, :, 40:] = 220
+    assert not ve.windows_share_footage(
+        ve.frame_signatures(left), ve.frame_signatures(right)
+    )
+
+
+def test_a_mean_picture_would_have_confused_two_dark_scenes():
+    """Regression for a rejected design: whole-window means were meaningless."""
+    first = np.zeros((10, ve.THUMB_HEIGHT, ve.THUMB_WIDTH), dtype=np.uint8)
+    first[:, :, :20] = 90
+    second = np.zeros((10, ve.THUMB_HEIGHT, ve.THUMB_WIDTH), dtype=np.uint8)
+    second[:, :, 20:40] = 92
+    signatures = ve.frame_signatures(first)
+    means_differ = abs(float(first.mean()) - float(second.mean()))
+    assert means_differ < 10  # nearly the same average brightness ...
+    assert not ve.windows_share_footage(signatures, ve.frame_signatures(second))
+
+
+def test_duplicate_content_is_dropped_from_the_report(monkeypatch, tmp_path):
+    """A trailer reuses one shot; two windows on it must not both ship."""
+    times = np.arange(0, 120, 10.0)
+    tier = ve.ScanTier(
+        times=times,
+        motion=np.full(len(times), 0.9),
+        cuts=np.zeros(len(times)),
+        audio=np.full(len(times), 0.8),
+        source_duration=120.0,
+        detail={},
+    )
+    monkeypatch.setattr(ve, "probe_duration", lambda path: 120.0)
+    monkeypatch.setattr(ve, "_coarse_scan", lambda path, duration, speech: tier)
+
+    reused = np.zeros((4, ve.SIGNATURE_BLOCKS[0] * ve.SIGNATURE_BLOCKS[1]), dtype=float)
+    other = np.full((4, ve.SIGNATURE_BLOCKS[0] * ve.SIGNATURE_BLOCKS[1]), 0.9, dtype=float)
+
+    def fake_refine(path, window):
+        signature = reused if window["start_s"] < 60 else other
+        return {
+            "motion_rel": 0.3,
+            "cut_peak": 0.5,
+            "static_share": 0.0,
+            "flat_share": 0.0,
+            "signature": signature,
+            "fps": 8.0,
+            "frames": 20,
+        }
+
+    monkeypatch.setattr(ve, "_refine_window", fake_refine)
+    source = tmp_path / "clip.mp4"
+    source.write_bytes(b"stub")
+    report = ve.analyze_source(source, max_candidates=4, target_duration=20.0)
+    assert report["scan"]["duplicates_dropped"] >= 1
+    assert 1 <= len(report["candidates"]) < 4
+    assert "_signature" not in report["candidates"][0]

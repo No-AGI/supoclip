@@ -237,6 +237,54 @@ def is_card(static: float, flat: float) -> bool:
     return static >= STATIC_SHARE_DEMOTE or flat >= FLAT_SHARE_DEMOTE
 
 
+SIGNATURE_BLOCKS = (16, 9)
+# Two windows that share a frame this close show the same footage. Measured on
+# one trailer: the repeated parachute shot scored 0.0005 while every pair of
+# genuinely different windows scored 0.041-0.073, so 0.01 separates them
+# without guessing.
+SIGNATURE_DUPLICATE_DIFF = 0.01
+
+
+def frame_signatures(frames: np.ndarray) -> np.ndarray:
+    """One small appearance vector per frame (16x9 pooled grey, 0..1).
+
+    Averaging a whole window into one picture was tested and rejected: in a
+    20 s window containing several shots the mean looks like every other
+    dark window (different scenes scored 0.030-0.036, the real repeat scored
+    0.062). Comparing individual frames instead is what separates them.
+    """
+    if len(frames) == 0:
+        return np.zeros((0, SIGNATURE_BLOCKS[0] * SIGNATURE_BLOCKS[1]), dtype=float)
+    rows, columns = SIGNATURE_BLOCKS
+    height, width = frames.shape[1], frames.shape[2]
+    block_h = max(1, height // rows)
+    block_w = max(1, width // columns)
+    cells = []
+    for frame in frames.astype(np.float32):
+        cells.append(
+            [
+                frame[r * block_h:(r + 1) * block_h, c * block_w:(c + 1) * block_w].mean()
+                for r in range(rows)
+                for c in range(columns)
+            ]
+        )
+    return np.asarray(cells, dtype=float) / 255.0
+
+
+def windows_share_footage(
+    first: Optional[np.ndarray],
+    second: Optional[np.ndarray],
+    threshold: float = SIGNATURE_DUPLICATE_DIFF,
+) -> bool:
+    """True when two windows contain an essentially identical frame."""
+    if first is None or second is None or len(first) == 0 or len(second) == 0:
+        return False
+    for left in first:
+        if float(np.abs(second - left).mean(axis=1).min()) < threshold:
+            return True
+    return False
+
+
 def motion_centroid(frames: np.ndarray) -> np.ndarray:
     """Horizontal centre (0..1) of what changed in each frame pair.
 
@@ -514,6 +562,7 @@ def _refine_window(path: Path, window: dict) -> dict:
         "cut_peak": float(cut_spikes(differences).max()),
         "static_share": static_share(frames),
         "flat_share": flat_share(frames),
+        "signature": frame_signatures(frames),
         "fps": REFINE_FPS,
         "frames": int(len(frames)),
     }
@@ -530,6 +579,7 @@ def analyze_source(
     max_candidates: int = 8,
     target_duration: float = DEFAULT_TARGET_DURATION,
     refine: bool = True,
+    dedupe: bool = True,
 ) -> dict:
     """Scan one source and return ranked candidates plus their evidence."""
     path = Path(path)
@@ -578,6 +628,7 @@ def analyze_source(
     )
 
     candidates = []
+    duplicates: list[dict] = []
     for window in windows:
         index = window["sample_index"]
         motion = float(tier.motion[index])
@@ -632,8 +683,10 @@ def analyze_source(
                     "refined": {
                         key: round(value, 3) if isinstance(value, float) else value
                         for key, value in refined.items()
+                        if key != "signature"
                     },
                 },
+                "_signature": refined.get("signature"),
                 "audio_lang": None,
                 "subtitle_lang": None,
                 "caption_review": "pending",
@@ -645,6 +698,31 @@ def analyze_source(
     # Rank by the final score (after any card demotion), then present the list in
     # reading order so a reviewer can walk the source front to back.
     ranked = sorted(candidates, key=lambda item: item["score"], reverse=True)
+    if dedupe:
+        seen: list = []
+        kept = []
+        for candidate in ranked:
+            signature = candidate.pop("_signature", None)
+            if signature is not None and any(
+                windows_share_footage(signature, other) for other in seen
+            ):
+                duplicates.append(
+                    {
+                        "start_s": candidate["start_s"],
+                        "end_s": candidate["end_s"],
+                        "score": candidate["score"],
+                        "event_type": candidate["event_type"],
+                        "reason": "shares a frame with a higher-ranked window",
+                    }
+                )
+                continue
+            if signature is not None:
+                seen.append(signature)
+            kept.append(candidate)
+        ranked = kept
+    else:
+        for candidate in ranked:
+            candidate.pop("_signature", None)
     for position, candidate in enumerate(ranked, start=1):
         candidate["rank"] = position
     candidates = sorted(ranked, key=lambda item: item["start_s"])
@@ -661,6 +739,8 @@ def analyze_source(
             "tier_a": "keyframes",
             **tier.detail,
             "cut_count": int((tier.cuts >= 0.5).sum()),
+            "duplicates_dropped": len(duplicates),
+            "duplicate_windows": duplicates,
             "speech_share": round(float(speech.mean()) if len(speech) else 0.0, 3),
         },
         "weights": dict(EVENT_WEIGHTS),
