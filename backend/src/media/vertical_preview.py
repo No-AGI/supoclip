@@ -58,14 +58,8 @@ def render_preview(
     *,
     centre: Optional[float] = None,
 ) -> dict:
-    """Render the window twice: current blur-fit look and the measured crop."""
-    probe = ve._run(
-        [
-            "ffprobe", "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "stream=width,height", "-of", "csv=p=0", str(path),
-        ]
-    ).decode().strip()
-    width, height = (int(part) for part in probe.split(",")[:2])
+    """Measure the window and render a 9:16 crop preview."""
+    width, height = ve.probe_size(path)
     measurement = measure_crop(path, start, end)
     if centre is None:
         centre = measurement.get("centre_median", 0.5)

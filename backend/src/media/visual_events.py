@@ -384,6 +384,21 @@ def _run(command: Sequence[str], *, capture: bool = True) -> bytes:
     return result.stdout or b""
 
 
+def probe_size(path: Path) -> tuple[int, int]:
+    """(width, height) of the first video stream, or (0, 0) if unreadable."""
+    output = _run(
+        [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height", "-of", "csv=p=0", str(path),
+        ]
+    )
+    parts = output.decode().strip().split(",")[:2]
+    try:
+        return int(parts[0]), int(parts[1])
+    except (IndexError, ValueError):
+        return 0, 0
+
+
 def probe_duration(path: Path) -> float:
     output = _run(
         [
