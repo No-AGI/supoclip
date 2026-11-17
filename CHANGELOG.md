@@ -4,6 +4,10 @@ What changed in SupoClip for people using the product. Newest dates are first.
 
 Add a line here when a pull request changes something a user can see. Use **New**, **Improved**, **Fixed**, or **Under the hood**, describe the change in plain language, and link the pull request. Skip internal-only work, or fold it into one **Under the hood** line. Do not include customer names, email addresses, user IDs, or anything else private.
 
+## 2026-11-17
+
+- **Fixed:** Model fallback tries another key when Google rejects a key, handles exhausted credits, and keeps free OpenRouter models on free fallbacks. The landing page calendar now displays consistent times. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+
 ## 2026-11-13
 
 - **Fixed:** Long-task retries keep the gaming profile, reject changed sources with saved clips, avoid reusing interrupted audio, and preserve completed output when notifications fail. Paid transcription jobs retain their provider ID for safe recovery; an uncertain submission stops instead of automatically charging again. Changed inputs cannot hide saved paid jobs, completed transcripts validate their source and settings, and YouTube workflows can plan without trusting URL-only outline caches. ([#1](https://github.com/No-AGI/supoclip/pull/1))

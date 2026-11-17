@@ -661,6 +661,8 @@ def _build_transcript_model(
         )
     if provider == "openrouter":
         fallback = runtime_config.openrouter_fallback_model
+        if provider_model_name.endswith(":free") or provider_model_name == "openrouter/free":
+            fallback = "openrouter/free"
         if not provider_model_name or "/" not in provider_model_name or "/" not in fallback:
             raise RuntimeError("OpenRouter primary and fallback models must use vendor/model IDs.")
         # The installed SDK predates Sonnet 5.5. Both selected models advertise

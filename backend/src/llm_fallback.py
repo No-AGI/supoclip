@@ -31,7 +31,7 @@ from pydantic_ai.exceptions import (
 logger = logging.getLogger(__name__)
 
 AUTH_STATUS_CODES = frozenset({401, 403})
-QUOTA_STATUS_CODES = frozenset({429})
+QUOTA_STATUS_CODES = frozenset({402, 429})
 TRANSIENT_STATUS_CODES = frozenset({408, 500, 502, 503, 504, 529})
 MODEL_MISSING_STATUS_CODES = frozenset({404})
 
@@ -133,6 +133,10 @@ def classify_error(error: BaseException) -> ErrorKind:
         return ErrorKind.AUTH
     if isinstance(error, ModelHTTPError):
         status = error.status_code
+        # Google reports an invalid API key as HTTP 400 with this reason.
+        # Other 400 responses must remain request errors, not key failures.
+        if status == 400 and "API_KEY_INVALID" in str(error.body):
+            return ErrorKind.AUTH
         if status in AUTH_STATUS_CODES:
             return ErrorKind.AUTH
         if status in QUOTA_STATUS_CODES:

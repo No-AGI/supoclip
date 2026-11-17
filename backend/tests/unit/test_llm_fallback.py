@@ -71,6 +71,24 @@ def test_a_failure_is_told_apart_from_another(error, expected):
     assert classify_error(error) is expected
 
 
+async def test_google_invalid_key_tries_another_key_then_provider():
+    calls = []
+
+    async def run(agent):
+        calls.append((agent.model, agent.key))
+        if agent.model.startswith("google"):
+            raise ModelHTTPError(status_code=400, model_name=agent.model, body={"error": {"details": [{"reason": "API_KEY_INVALID"}]}})
+        return "ok"
+
+    result = await run_with_fallback(
+        lambda model, key: FakeAgent(model, key), run,
+        chain=["google-gla:gemini", "openrouter:example/model"],
+        keys_for=lambda model: ["bad-1", "bad-2"] if model.startswith("google") else ["other"],
+    )
+    assert result.value == "ok"
+    assert calls == [("google-gla:gemini", "bad-1"), ("google-gla:gemini", "bad-2"), ("openrouter:example/model", "other")]
+
+
 async def test_a_busy_model_makes_the_next_one_answer():
     calls: list[tuple[str, str | None]] = []
 

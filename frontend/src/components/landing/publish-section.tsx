@@ -30,7 +30,6 @@ function WeekCalendar() {
   const t = useTranslations("marketing.publish.calendar");
   const locale = useLocale();
   const weekday = new Intl.DateTimeFormat(locale, { weekday: "short" });
-  const time = new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" });
   const days = Array.from({ length: 7 }, (_, i) => new Date(WEEK_START.getFullYear(), WEEK_START.getMonth(), WEEK_START.getDate() + i));
 
   return (
@@ -68,7 +67,6 @@ function WeekCalendar() {
                   const clip = DEMO_CLIPS[slot.clip];
                   const soon = slot.provider === "instagram";
                   const published = !soon && dayIndex < TODAY_INDEX;
-                  const at = new Date(day.getFullYear(), day.getMonth(), day.getDate(), slot.hour, slot.minute);
                   return (
                     <div
                       key={`${slot.day}-${slot.provider}`}
@@ -96,7 +94,7 @@ function WeekCalendar() {
                         )}
                       </div>
                       <p className="mt-1.5 truncate px-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
-                        {soon ? t("soon") : time.format(at)}
+                        {soon ? t("soon") : `${String(slot.hour).padStart(2, "0")}:${String(slot.minute).padStart(2, "0")}`}
                       </p>
                     </div>
                   );
