@@ -211,3 +211,40 @@ def test_missing_source_is_an_error(tmp_path):
     except FileNotFoundError:
         return
     raise AssertionError("missing source must raise")
+
+
+def test_motion_centroid_finds_the_side_motion_is_on():
+    frames = np.zeros((6, ve.THUMB_HEIGHT, ve.THUMB_WIDTH), dtype=np.uint8)
+    frames[:, :, :] = 20
+    # Only the right third changes between frames 3 and 4.
+    frames[4:, :, int(ve.THUMB_WIDTH * 2 / 3):] = 220
+    centres = ve.motion_centroid(frames)
+    assert len(centres) == 6
+    assert centres[0] == 0.5  # no previous frame
+    assert centres[4] > 0.6
+
+
+def test_centroid_is_smoothed_across_neighbours():
+    centres = np.array([0.1, 0.9, 0.2, 0.8, 0.3])
+    smoothed = ve.smoothed_centroid(centres, window=3)
+    assert float(smoothed.std()) < float(centres.std())
+
+
+def test_crop_window_keeps_the_centre_inside_a_wide_source():
+    for centre in (0.0, 0.5, 1.0):
+        box = ve.crop_window_for_centroid(centre, 1920, 1080)
+        assert box["height"] == 1080
+        assert box["width"] == 608  # 1080 * 9/16 = 607.5, rounded to even
+        assert box["x"] >= 0 and box["x"] + box["width"] <= 1920
+        assert box["y"] >= 0
+
+
+def test_crop_window_is_centred_for_the_middle():
+    box = ve.crop_window_for_centroid(0.5, 1920, 1080)
+    assert abs(box["x"] - (1920 - box["width"]) / 2) <= 1
+
+
+def test_crop_window_handles_a_tall_source():
+    box = ve.crop_window_for_centroid(0.5, 1080, 1920)
+    assert box["width"] == 1080
+    assert box["height"] <= 1920

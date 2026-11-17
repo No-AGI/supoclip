@@ -237,6 +237,69 @@ def is_card(static: float, flat: float) -> bool:
     return static >= STATIC_SHARE_DEMOTE or flat >= FLAT_SHARE_DEMOTE
 
 
+def motion_centroid(frames: np.ndarray) -> np.ndarray:
+    """Horizontal centre (0..1) of what changed in each frame pair.
+
+    For gameplay the interesting thing is usually where the movement is, not
+    where a face is. Returns 0.5 for pairs with no measurable change so a still
+    moment does not drag the crop to an edge.
+    """
+    if len(frames) < 2:
+        return np.full(len(frames), 0.5, dtype=float)
+    data = frames.astype(np.int16)
+    deltas = np.abs(np.diff(data, axis=0)).mean(axis=1)  # (frames-1, width)
+    columns = np.arange(deltas.shape[1], dtype=float)
+    centres = np.full(len(frames), 0.5, dtype=float)
+    for index, row in enumerate(deltas, start=1):
+        total = float(row.sum())
+        if total <= 1e-6:
+            continue
+        centres[index] = float((row * columns).sum() / total) / max(1, deltas.shape[1] - 1)
+    return centres
+
+
+def smoothed_centroid(centres: np.ndarray, window: int = 9) -> np.ndarray:
+    """Median-filtered centroid, so the crop does not twitch frame to frame."""
+    if len(centres) == 0:
+        return centres
+    half = max(1, window // 2)
+    smoothed = np.empty_like(centres)
+    for index in range(len(centres)):
+        low = max(0, index - half)
+        high = min(len(centres), index + half + 1)
+        smoothed[index] = float(np.median(centres[low:high]))
+    return smoothed
+
+
+def crop_window_for_centroid(
+    centre: float, width: int, height: int, target_ratio: float = 9 / 16
+) -> dict:
+    """9:16 crop rectangle that keeps ``centre`` inside the frame.
+
+    When the source is wider than 9:16 the crop keeps full height and slides
+    horizontally; for a taller source it keeps full width instead.
+    """
+    if width <= 0 or height <= 0:
+        return {"x": 0, "y": 0, "width": width, "height": height}
+    if width / height > target_ratio:
+        crop_h = height
+        crop_w = max(2, int(round(height * target_ratio)))
+    else:
+        crop_w = width
+        crop_h = max(2, int(round(width / target_ratio)))
+    centre = float(min(1.0, max(0.0, centre)))
+    x = int(round(centre * width - crop_w / 2))
+    x = max(0, min(width - crop_w, x))
+    y = max(0, min(height - crop_h, int((height - crop_h) / 2)))
+    # Even offsets keep every encoder happy.
+    return {
+        "x": x - (x % 2),
+        "y": y - (y % 2),
+        "width": crop_w - (crop_w % 2),
+        "height": crop_h - (crop_h % 2),
+    }
+
+
 def build_windows(
     times: np.ndarray,
     scores: np.ndarray,
