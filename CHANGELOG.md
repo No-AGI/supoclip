@@ -6,6 +6,7 @@ Add a line here when a pull request changes something a user can see. Use **New*
 
 ## 2026-11-17
 
+- **New:** A cover can be composed from any gameplay frame in the brand style — two-line title, pink separator, yellow nickname and pink underline — with the 3:4 and 4:5 crops the contract requires checked in the same run. Cyrillic-safe font, the streamer's webcam cropped out, and the call to action kept above Instagram's bottom overlay. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 - **New:** On a long stream the moment scan can be pointed at one time span, so the loudest hour no longer fills the whole candidate list and the rest of the recording is scored on its own. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 - **Under the hood:** The output cap of the model chain is configurable (`LLM_MAX_TOKENS`). Free models whose context window is 8192 rejected every request before answering because the cap was hard-coded at 8192. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 - **Under the hood:** A second, speech-driven candidate channel ranks transcript windows by how much is said and how emphatically; on a labelled stream slice it reached 0.32 recall against 0.13 for the visual channel. Visual candidates can be added as a reserve behind `VISUAL_CANDIDATES_ENABLED` and never displace a spoken segment. ([#1](https://github.com/No-AGI/supoclip/pull/1))
