@@ -42,9 +42,21 @@ class Config:
             os.getenv("TRANSCRIPTION_CODE_SWITCHING_LANGUAGES", "")
         )
         self.llm = self._get_runtime_setting("LLM") or self._infer_default_llm()
+        # Off by default: the visual channel measured 0.13 recall against 0.32
+        # for the speech channel on a labelled stream slice, so it only ever
+        # adds candidates as an opt-in extra, never as the main source.
+        self.visual_candidates_enabled = self._get_bool_env(
+            "VISUAL_CANDIDATES_ENABLED", False
+        )
+        self.visual_candidates_max = self._get_int_env("VISUAL_CANDIDATES_MAX", 6)
         # Models that are tried when the primary one is overloaded or its key
         # is refused. The order is the order they are tried in.
         self.llm_fallbacks = self._get_runtime_setting("LLM_FALLBACKS") or ""
+        # Output cap for the OpenAI-compatible routes. Paid models accept the
+        # historical 8192, but a free model whose context window is 8192 rejects
+        # the whole request before generating anything, so this has to be
+        # tunable without editing code.
+        self.llm_max_tokens = self._get_int_env("LLM_MAX_TOKENS", 8192)
         # JSON with the extra keys of the providers, for example
         # {"google": ["key1", "key2"], "openrouter": ["keyA"]}.
         self.llm_provider_keys = self._get_runtime_setting("LLM_PROVIDER_KEYS") or ""

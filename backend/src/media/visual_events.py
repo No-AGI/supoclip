@@ -580,11 +580,23 @@ def analyze_source(
     target_duration: float = DEFAULT_TARGET_DURATION,
     refine: bool = True,
     dedupe: bool = True,
+    window: Optional[tuple[float, float]] = None,
 ) -> dict:
-    """Scan one source and return ranked candidates plus their evidence."""
+    """Scan one source and return ranked candidates plus their evidence.
+
+    ``window`` limits which part of the source can produce candidates, so a long
+    stream can be scored slice by slice without one loud hour hiding the rest.
+    """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(path)
+    if window is not None:
+        # Validate the span before touching the file: a caller's typo should not
+        # cost a decode.
+        start_s, end_s = float(window[0]), float(window[1])
+        if not (end_s > start_s >= 0):
+            raise ValueError("window must be START < END and START >= 0")
+        window = (start_s, end_s)
     duration = probe_duration(path)
     tier = _coarse_scan(path, duration, speech_windows)
     if len(tier.times) == 0:
@@ -618,9 +630,27 @@ def analyze_source(
         )
 
     cut_times = tier.times[tier.cuts >= 0.5]
-    windows = build_windows(
+    scan_times, scan_scores, scan_cuts, scan_motion, scan_audio, scan_speech = (
         tier.times,
         scores,
+        tier.cuts,
+        tier.motion,
+        tier.audio,
+        speech,
+    )
+    if window is not None:
+        # A stream is scanned in slices: without this, one loud hour outranks a
+        # quiet hour and the returned windows cluster where the scoring is
+        # easiest instead of covering the requested span.
+        start_s, end_s = window
+        keep = (tier.times >= start_s) & (tier.times <= end_s)
+        scan_times, scan_scores = tier.times[keep], scores[keep]
+        scan_cuts, scan_motion = tier.cuts[keep], tier.motion[keep]
+        scan_audio, scan_speech = tier.audio[keep], speech[keep]
+        cut_times = scan_times[scan_cuts >= 0.5]
+    windows = build_windows(
+        scan_times,
+        scan_scores,
         source_duration=duration,
         cuts=cut_times,
         max_candidates=max_candidates,
@@ -631,10 +661,10 @@ def analyze_source(
     duplicates: list[dict] = []
     for window in windows:
         index = window["sample_index"]
-        motion = float(tier.motion[index])
-        cut = float(tier.cuts[index])
-        audio = float(tier.audio[index])
-        spoke = float(speech[index])
+        motion = float(scan_motion[index])
+        cut = float(scan_cuts[index])
+        audio = float(scan_audio[index])
+        spoke = float(scan_speech[index])
         event = classify_event(motion, cut, audio, spoke)
         refined = _refine_window(path, window) if refine else {}
         raw_score = window["score"]
@@ -776,7 +806,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--max-candidates", type=int, default=8)
     parser.add_argument("--target-duration", type=float, default=DEFAULT_TARGET_DURATION)
     parser.add_argument("--no-refine", action="store_true")
+    parser.add_argument(
+        "--window",
+        metavar="START:END",
+        help="Only score candidates inside this span, for one slice of a long stream",
+    )
     args = parser.parse_args(argv)
+
+    window = None
+    if args.window:
+        parsed = _parse_windows([args.window])
+        if len(parsed) != 1:
+            parser.error("--window takes exactly one START:END pair")
+        window = parsed[0]
 
     report = analyze_source(
         args.source,
@@ -788,6 +830,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         max_candidates=args.max_candidates,
         target_duration=args.target_duration,
         refine=not args.no_refine,
+        window=window,
     )
     payload = json.dumps(report, indent=2, ensure_ascii=False)
     if args.out:

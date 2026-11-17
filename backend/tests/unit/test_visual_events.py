@@ -5,6 +5,7 @@ network: the ffmpeg passes themselves are exercised by the manual run recorded
 in docs/visual-events-prototype-2026-11-17.md.
 """
 import numpy as np
+import pytest
 
 from src.media import visual_events as ve
 
@@ -319,3 +320,30 @@ def test_duplicate_content_is_dropped_from_the_report(monkeypatch, tmp_path):
     assert report["scan"]["duplicates_dropped"] >= 1
     assert 1 <= len(report["candidates"]) < 4
     assert "_signature" not in report["candidates"][0]
+
+
+def test_window_limits_candidates_to_the_requested_span():
+    """A loud hour must not crowd out the slice the caller asked about."""
+    times = np.arange(0.0, 1200.0, 1.0)
+    scores = np.full_like(times, 4.0)
+    scores[:400] = 99.0  # the loud part, outside the requested window
+    scores[650] = 9.0
+    windows = ve.build_windows(times, scores, source_duration=1200.0, max_candidates=5)
+    assert windows[0]["start_s"] < 420
+
+    keep = (times >= 600.0) & (times <= 900.0)
+    inside = ve.build_windows(
+        times[keep], scores[keep], source_duration=1200.0, max_candidates=5
+    )
+    assert inside
+    for window in inside:
+        # A window is centred on its peak, so it may start up to half a target
+        # duration before the span begins.
+        assert 600.0 - ve.DEFAULT_TARGET_DURATION / 2 <= window["start_s"] <= 900.0
+
+
+def test_window_must_not_be_reversed(tmp_path, monkeypatch):
+    source = tmp_path / "clip.mp4"
+    source.write_bytes(b"not a real video")
+    with pytest.raises(ValueError):
+        ve.analyze_source(source, window=(600.0, 300.0))

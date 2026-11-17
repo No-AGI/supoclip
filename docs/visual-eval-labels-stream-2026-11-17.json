@@ -1,0 +1,354 @@
+{
+  "source": "JsTO6t5GImY",
+  "video": "БЕСПРЕДЕЛИМ ОДИН ЧАС С КОЛЯНОМ БЕЛОВЫМ! (ПРОХОЖДЕНИЕ GTA IV #10)",
+  "url": "https://www.youtube.com/watch?v=JsTO6t5GImY",
+  "test_window": {
+    "start_s": 420,
+    "end_s": 1320
+  },
+  "protocol": "Labelled by three subagents from contact sheets only (4x4 tiles, 6 s step, burned-in timestamps). They never saw detector output, scores or candidate windows; each covered one 5-minute slice. Intervals are accurate to ±6 s.",
+  "intervals": [
+    {
+      "start_s": 420,
+      "end_s": 438,
+      "label": "event",
+      "note": "обыск заброшенного дома с пистолетом, граффити",
+      "confidence": 0.6,
+      "category": "silent",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 456,
+      "end_s": 468,
+      "label": "event",
+      "note": "разговор с NPC про вещи на столе",
+      "confidence": 0.6,
+      "category": "dialogue",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 480,
+      "end_s": 498,
+      "label": "event",
+      "note": "вооружённые NPC во дворе, прицеливание из пистолета",
+      "confidence": 0.55,
+      "category": "combat",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 504,
+      "end_s": 510,
+      "label": "event",
+      "note": "вертолёт над ночной улицей",
+      "confidence": 0.45,
+      "category": "silent",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 516,
+      "end_s": 522,
+      "label": "event",
+      "note": "реплика персонажа с субтитром",
+      "confidence": 0.5,
+      "category": "dialogue",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 528,
+      "end_s": 540,
+      "label": "event",
+      "note": "прицеливание в проёме двери, бочки",
+      "confidence": 0.5,
+      "category": "combat",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 552,
+      "end_s": 564,
+      "label": "event",
+      "note": "тело убитого в ночном переулке, персонаж с оружием",
+      "confidence": 0.6,
+      "category": "combat",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 570,
+      "end_s": 594,
+      "label": "event",
+      "note": "сел в пикап и погнал по ночным улицам",
+      "confidence": 0.65,
+      "category": "chase",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 594,
+      "end_s": 606,
+      "label": "event",
+      "note": "пикап врезается в ограду, кузов задирается",
+      "confidence": 0.5,
+      "category": "physics",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 612,
+      "end_s": 618,
+      "label": "event",
+      "note": "пикап едет по ночной улице мимо парка",
+      "confidence": 0.45,
+      "category": "chase",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 618,
+      "end_s": 624,
+      "label": "not_event",
+      "note": "открыта карта игры",
+      "confidence": 0.85,
+      "category": "none",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 630,
+      "end_s": 642,
+      "label": "event",
+      "note": "ночной переулок, машина маневрирует у зданий",
+      "confidence": 0.4,
+      "category": "silent",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 648,
+      "end_s": 672,
+      "label": "event",
+      "note": "скоростная езда по мосту, смена районов",
+      "confidence": 0.75,
+      "category": "chase",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 678,
+      "end_s": 684,
+      "label": "not_event",
+      "note": "меню: карта и статистика",
+      "confidence": 0.85,
+      "category": "none",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 684,
+      "end_s": 714,
+      "label": "event",
+      "note": "езда на скорости по ночным улицам",
+      "confidence": 0.6,
+      "category": "chase",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 732,
+      "end_s": 756,
+      "label": "event",
+      "note": "человек с оружием у машины, на асфальте тело",
+      "confidence": 0.5,
+      "category": "combat",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 762,
+      "end_s": 798,
+      "label": "event",
+      "note": "ночная езда по улицам, поток машин",
+      "confidence": 0.5,
+      "category": "chase",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 804,
+      "end_s": 840,
+      "label": "event",
+      "note": "выезд на мост, пробка на эстакаде, полицейская машина",
+      "confidence": 0.55,
+      "category": "chase",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 858,
+      "end_s": 870,
+      "label": "event",
+      "note": "машина заезжает в тесный двор с граффити",
+      "confidence": 0.45,
+      "category": "silent",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 870,
+      "end_s": 906,
+      "label": "event",
+      "note": "катсцена во дворе: Нико и Богдан выясняют отношения",
+      "confidence": 0.85,
+      "category": "dialogue",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 912,
+      "end_s": 948,
+      "label": "event",
+      "note": "продолжение разговора, женщина у гаража",
+      "confidence": 0.8,
+      "category": "dialogue",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 948,
+      "end_s": 960,
+      "label": "event",
+      "note": "стример закрывает лицо рукой и смеётся",
+      "confidence": 0.5,
+      "category": "emotion",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 960,
+      "end_s": 972,
+      "label": "event",
+      "note": "после катсцены человек убегает по переулку",
+      "confidence": 0.45,
+      "category": "silent",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 972,
+      "end_s": 978,
+      "label": "not_event",
+      "note": "пауза с картой города и меню",
+      "confidence": 0.9,
+      "category": "none",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 984,
+      "end_s": 1002,
+      "label": "event",
+      "note": "спокойная ночная езда по району",
+      "confidence": 0.4,
+      "category": "chase",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 1008,
+      "end_s": 1014,
+      "label": "event",
+      "note": "катсцена в комнате: женщина говорит с Нико",
+      "confidence": 0.75,
+      "category": "dialogue",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 1014,
+      "end_s": 1020,
+      "label": "not_event",
+      "note": "чёрный экран",
+      "confidence": 0.8,
+      "category": "none",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 1020,
+      "end_s": 1050,
+      "label": "event",
+      "note": "катсцена в квартире: разговор с девушкой",
+      "confidence": 0.85,
+      "category": "dialogue",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 1050,
+      "end_s": 1080,
+      "label": "event",
+      "note": "скриптовая сцена: мужчина хватает девушку за руку",
+      "confidence": 0.65,
+      "category": "mechanic",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 1080,
+      "end_s": 1098,
+      "label": "event",
+      "note": "крупные планы девушки, паника",
+      "confidence": 0.6,
+      "category": "emotion",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 1104,
+      "end_s": 1110,
+      "label": "not_event",
+      "note": "чёрный экран между сценами",
+      "confidence": 0.9,
+      "category": "none",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 1110,
+      "end_s": 1152,
+      "label": "event",
+      "note": "ночная езда за чужой машиной",
+      "confidence": 0.8,
+      "category": "chase",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 1152,
+      "end_s": 1188,
+      "label": "event",
+      "note": "скоростное преследование по мосту",
+      "confidence": 0.8,
+      "category": "chase",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 1188,
+      "end_s": 1212,
+      "label": "event",
+      "note": "в погоне появляются полицейские машины",
+      "confidence": 0.7,
+      "category": "chase",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 1218,
+      "end_s": 1242,
+      "label": "not_event",
+      "note": "рекламные оверлеи стрима, игры нет",
+      "confidence": 0.95,
+      "category": "none",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 1248,
+      "end_s": 1266,
+      "label": "event",
+      "note": "тихий ночной город у магазина",
+      "confidence": 0.55,
+      "category": "silent",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 1268,
+      "end_s": 1276,
+      "label": "not_event",
+      "note": "статичная плашка ССЫЛКА В ОПИСАНИИ",
+      "confidence": 0.95,
+      "category": "none",
+      "annotator": "independent-subagent"
+    },
+    {
+      "start_s": 1284,
+      "end_s": 1314,
+      "label": "event",
+      "note": "сцена у забора кладбища, реплики про машину",
+      "confidence": 0.6,
+      "category": "dialogue",
+      "annotator": "independent-subagent"
+    }
+  ]
+}

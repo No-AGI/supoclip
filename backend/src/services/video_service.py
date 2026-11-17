@@ -687,6 +687,72 @@ class VideoService:
         }
 
     @staticmethod
+    def merge_visual_candidates(
+        segments: List[Dict[str, Any]],
+        candidates: List[Dict[str, Any]],
+        *,
+        overlap_share: float = 0.5,
+    ) -> List[Dict[str, Any]]:
+        """Append visual moments the transcript path did not already cover.
+
+        A candidate that mostly overlaps a chosen segment adds nothing, so it is
+        dropped instead of taking a clip slot. Visual candidates are ranked below
+        spoken ones: on a labelled stream slice they scored 0.13 recall against
+        0.32 for speech, so they are a reserve, not a replacement.
+        """
+        if not candidates:
+            return list(segments)
+        existing = [
+            (float(segment.get("start_s", 0)), float(segment.get("end_s", 0)))
+            for segment in segments
+            if segment.get("start_s") is not None and segment.get("end_s") is not None
+        ]
+        existing += [
+            (
+                float(parse_timestamp_to_seconds(str(segment.get("start_time", "00:00")))),
+                float(parse_timestamp_to_seconds(str(segment.get("end_time", "00:00")))),
+            )
+            for segment in segments
+            if segment.get("start_time") and segment.get("end_time")
+        ]
+        merged = list(segments)
+        for candidate in candidates:
+            start = float(candidate.get("start_s", 0.0))
+            end = float(candidate.get("end_s", 0.0))
+            if end <= start:
+                continue
+            covered = False
+            for other_start, other_end in existing:
+                shared = max(0.0, min(end, other_end) - max(start, other_start))
+                if shared >= overlap_share * min(end - start, other_end - other_start):
+                    covered = True
+                    break
+            if covered:
+                continue
+            existing.append((start, end))
+            score = float(candidate.get("score", 0.0))
+            merged.append(
+                {
+                    "start_time": seconds_to_mmss(start),
+                    "end_time": seconds_to_mmss(end),
+                    "text": "",
+                    "relevance_score": round(min(0.45, score / 200.0), 3),
+                    "reasoning": (
+                        f"Visual moment ({candidate.get('event_type', 'visual')}): "
+                        f"{candidate.get('reason', 'signals only, not verified')}"
+                    ),
+                    "virality_score": 0,
+                    "hook_score": 0,
+                    "engagement_score": 0,
+                    "value_score": 0,
+                    "shareability_score": 0,
+                    "hook_type": "visual_signal",
+                    "hook_title": None,
+                }
+            )
+        return merged
+
+    @staticmethod
     def resolve_local_video_path(url: str) -> Path:
         """Resolve uploaded-video references without exposing server filesystem paths."""
         if url.startswith(UPLOAD_URL_PREFIX):
@@ -1366,6 +1432,29 @@ class VideoService:
         except Exception:
             # A heuristic must never fail the task; keep the AI's openings.
             logger.exception("Opening review failed; keeping the selected openings")
+
+        if getattr(runtime_config, "visual_candidates_enabled", False) and not prepared_segments:
+            try:
+                from ..media.visual_events import analyze_source
+
+                visual_report = await run_in_thread(
+                    analyze_source,
+                    video_path,
+                    max_candidates=max(1, int(getattr(runtime_config, "visual_candidates_max", 6))),
+                    source_id=(video_path.stem if video_path else None),
+                )
+                before = len(segments_json)
+                segments_json = VideoService.merge_visual_candidates(
+                    segments_json, visual_report.get("candidates") or []
+                )
+                logger.info(
+                    "Visual candidates added %d of %d scanned windows",
+                    len(segments_json) - before,
+                    len(visual_report.get("candidates") or []),
+                )
+            except Exception:
+                # The extra channel is optional: a failure must not cost the task.
+                logger.exception("Visual candidate scan failed; continuing with spoken segments")
 
         clip_limit = max_final_clips_for_duration(file_duration, runtime_config.max_clips)
         if processing_mode == "fast":

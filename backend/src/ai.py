@@ -678,7 +678,7 @@ def _build_transcript_model(
                 "openrouter_models": [fallback] if fallback != provider_model_name else [],
                 "openrouter_provider": {"allow_fallbacks": True, "require_parameters": True, "data_collection": "deny"},
                 "openrouter_reasoning": {"effort": "low"},
-                "max_tokens": 8192,
+                "max_tokens": getattr(runtime_config, "llm_max_tokens", 8192),
             },
         )
     if provider in ("google", "google-gla"):

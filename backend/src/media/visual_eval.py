@@ -27,6 +27,14 @@ KIND_NOT_EVENT = "not_event"
 
 def load_labels(path: Path) -> list[dict]:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
+    default_source = None
+    # A whole-file label set carries its source once and lists the intervals;
+    # a plain list is still accepted for a single hand-written interval.
+    if isinstance(data, dict):
+        default_source = data.get("source")
+        data = data.get("intervals")
+        if not isinstance(data, list):
+            raise ValueError("labels object must hold an 'intervals' list")
     if not isinstance(data, list):
         raise ValueError("labels file must contain a list")
     labels = []
@@ -38,13 +46,17 @@ def load_labels(path: Path) -> list[dict]:
         kind = entry.get("label", KIND_EVENT)
         if kind not in (KIND_EVENT, KIND_NOT_EVENT):
             raise ValueError(f"unknown label {kind!r}; use {KIND_EVENT}/{KIND_NOT_EVENT}")
+        source = str(entry.get("source") or default_source or "")
+        if not source:
+            raise ValueError(f"interval has no source: {entry}")
         labels.append(
             {
-                "source": str(entry["source"]),
+                "source": source,
                 "start_s": start,
                 "end_s": end,
                 "label": kind,
                 "note": entry.get("note", ""),
+                "category": entry.get("category", ""),
             }
         )
     return labels

@@ -6,6 +6,9 @@ Add a line here when a pull request changes something a user can see. Use **New*
 
 ## 2026-11-17
 
+- **New:** On a long stream the moment scan can be pointed at one time span, so the loudest hour no longer fills the whole candidate list and the rest of the recording is scored on its own. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+- **Under the hood:** The output cap of the model chain is configurable (`LLM_MAX_TOKENS`). Free models whose context window is 8192 rejected every request before answering because the cap was hard-coded at 8192. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+- **Under the hood:** A second, speech-driven candidate channel ranks transcript windows by how much is said and how emphatically; on a labelled stream slice it reached 0.32 recall against 0.13 for the visual channel. Visual candidates can be added as a reserve behind `VISUAL_CANDIDATES_ENABLED` and never displace a spoken segment. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 - **Under the hood:** A local scan can now find moments that have no dialogue — scene cuts, movement and audio peaks are measured with ffmpeg and numpy only, so a game stream's quiet action is no longer invisible to a transcript-driven selector. It is not wired into clip selection yet; see `docs/visual-events-prototype-2026-11-17.md`. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 - **Improved:** A video that speaks two languages — for example Russian commentary over English game lines — can now be transcribed in both: name the languages in `TRANSCRIPTION_CODE_SWITCHING_LANGUAGES` and AssemblyAI keeps both instead of forcing one detected language across the whole file. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 - **Fixed:** When a video has almost no speech, the task log now says how much of it was transcribed and where the speech actually is, instead of silently producing a starter clip without captions. ([#1](https://github.com/No-AGI/supoclip/pull/1))

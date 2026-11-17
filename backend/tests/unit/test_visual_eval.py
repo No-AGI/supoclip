@@ -112,3 +112,30 @@ def test_missing_report_is_listed_not_crashed(tmp_path):
     report_path.write_text(json.dumps(report("a", [(0.0, 5.0, 50.0, "motion_burst")])))
     result = ev.evaluate_files([report_path], labels_path)
     assert result["sources_without_report"] == ["b"]
+
+
+def test_a_whole_file_label_set_carries_its_source_once(tmp_path):
+    path = tmp_path / "labels.json"
+    path.write_text(
+        json.dumps(
+            {
+                "source": "stream-1",
+                "intervals": [
+                    {"start_s": 420, "end_s": 438, "label": "event", "category": "chase"},
+                    {"start_s": 618, "end_s": 624, "label": "not_event"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    labels = ev.load_labels(path)
+    assert [label["source"] for label in labels] == ["stream-1", "stream-1"]
+    assert labels[0]["category"] == "chase"
+    assert labels[1]["label"] == "not_event"
+
+
+def test_labels_without_any_source_are_refused(tmp_path):
+    path = tmp_path / "labels.json"
+    path.write_text(json.dumps([{"start_s": 1, "end_s": 2}]), encoding="utf-8")
+    with pytest.raises(ValueError):
+        ev.load_labels(path)
