@@ -6,6 +6,7 @@ Add a line here when a pull request changes something a user can see. Use **New*
 
 ## 2026-11-17
 
+- **New:** A five-slide carousel at Instagram's 4:5 feed size can be built from frames with one caption per slide, a slide counter, and the brand handle only on the closing slide. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 - **New:** A cover can be composed from any gameplay frame in the brand style — two-line title, pink separator, yellow nickname and pink underline — with the 3:4 and 4:5 crops the contract requires checked in the same run. Cyrillic-safe font, the streamer's webcam cropped out, and the call to action kept above Instagram's bottom overlay. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 - **New:** On a long stream the moment scan can be pointed at one time span, so the loudest hour no longer fills the whole candidate list and the rest of the recording is scored on its own. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 - **Under the hood:** The output cap of the model chain is configurable (`LLM_MAX_TOKENS`). Free models whose context window is 8192 rejected every request before answering because the cap was hard-coded at 8192. ([#1](https://github.com/No-AGI/supoclip/pull/1))
