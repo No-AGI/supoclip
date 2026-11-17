@@ -44,6 +44,7 @@ const JUST_NOW: Record<string, string> = {
   de: "gerade eben",
   zh: "刚刚",
   id: "baru saja",
+  ru: "только что",
 };
 
 export function timeAgo(value: string, locale = "en") {

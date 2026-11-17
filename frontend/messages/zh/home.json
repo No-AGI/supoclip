@@ -135,6 +135,12 @@
     "hint": "目标时长为移除停顿和语气词之前的时长。您的选择将保存为默认值。",
     "saveError": "无法保存默认值。此视频仍会使用您的选择。"
   },
+  "clipProfile": {
+    "section": "片段选择",
+    "general": "普通视频",
+    "gamingStream": "游戏直播",
+    "hint": "保留反应前的解释和对话；选择仅依据转录文本。"
+  },
   "whatToMake": "你想做什么？",
   "workflows": {
     "highlights": {

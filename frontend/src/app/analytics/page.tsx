@@ -18,6 +18,7 @@ import {
   formatDateTime,
   formatMetric,
   formatPercent,
+  type ClipPlatformPerformance,
   type PerformanceSummary,
 } from "@/lib/social";
 
@@ -103,6 +104,7 @@ export default function AnalyticsPage() {
   const { data: session, isPending } = useSession();
   const [performance, setPerformance] = useState<PerformanceSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [clipRows, setClipRows] = useState<ClipPlatformPerformance[] | null>(null);
   const socialAccess = useSocialAccess(Boolean(session?.user?.id));
 
   useEffect(() => {
@@ -113,6 +115,10 @@ export default function AnalyticsPage() {
         setPerformance((await response.json()) as PerformanceSummary);
       })
       .catch((err) => setError(err instanceof Error ? err.message : t("loadError")));
+    fetch("/api/social/performance/clips", { cache: "no-store" })
+      .then(async (response) => (response.ok ? ((await response.json()) as { clips: ClipPlatformPerformance[] }) : null))
+      .then((data) => { if (data) setClipRows(data.clips); })
+      .catch(() => {});
   }, [session?.user?.id, socialAccess, t]);
 
   if (isPending) {
@@ -177,6 +183,47 @@ export default function AnalyticsPage() {
           </section>
 
           <ViewsSection />
+
+          {clipRows && clipRows.length > 0 && (
+            <section>
+              <h2 className={SECTION_HEADING}>{t("clipPerformance")}</h2>
+              <div className="overflow-x-auto rounded-xl border bg-background">
+                <table className="w-full text-sm">
+                  <thead className={TABLE_HEAD}>
+                    <tr>
+                      <th className="px-3 py-2 font-medium">{t("clip")}</th>
+                      <th className="px-3 py-2 font-medium">{t("platform")}</th>
+                      <th className="px-3 py-2 font-medium text-right">{t("measuredPosts")}</th>
+                      <th className="px-3 py-2 font-medium text-right">{t("views")}</th>
+                      <th className="px-3 py-2 font-medium text-right">{t("likes")}</th>
+                      <th className="px-3 py-2 font-medium text-right">{t("comments")}</th>
+                      <th className="px-3 py-2 font-medium">{t("snapshotTime")}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="tabular-nums">
+                    {clipRows.map((row) => (
+                      <tr key={`${row.clip_id}:${row.provider}`} className="border-t">
+                        <td className="max-w-48 truncate px-3 py-2" title={row.clip_id}>
+                          <span className="block truncate font-medium">{row.title || row.clip_id}</span>
+                          <span className="font-mono text-xs text-muted-foreground">{row.clip_order === null ? row.clip_id : `#${row.clip_order}`}</span>
+                        </td>
+                        <td className="px-3 py-2"><span className="flex items-center gap-2"><SocialProviderIcon provider={row.provider} className="size-3.5" />{PROVIDER_LABELS[row.provider] ?? row.provider}</span></td>
+                        <td className="px-3 py-2 text-right">{row.measured_posts}/{row.posts}</td>
+                        <td className="px-3 py-2 text-right">{formatMetric(row.views)}</td>
+                        <td className="px-3 py-2 text-right">{formatMetric(row.likes)}</td>
+                        <td className="px-3 py-2 text-right">{formatMetric(row.comments)}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">
+                          {row.snapshot_from === row.snapshot_through
+                            ? formatDateTime(row.snapshot_through)
+                            : `${formatDateTime(row.snapshot_from)} – ${formatDateTime(row.snapshot_through)}`}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
 
           <section className="rounded-xl border bg-muted/50 p-4 text-sm">
             {performance.personalization_active ? (

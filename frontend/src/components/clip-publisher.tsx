@@ -309,12 +309,14 @@ export function ClipPublishButton({
 }: ClipPublishButtonProps) {
   const t = useTranslations("social");
   const tTask = useTranslations("task");
+  const locale = useLocale();
   const [open, setOpen] = useState(false);
   const [accountIds, setAccountIds] = useState<string[]>([]);
   const [submissions, setSubmissions] = useState<Record<string, { status: "accepted" | "failed" | "unknown"; message?: string; scheduled?: boolean }>>({});
   const submitting = useRef(false);
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
+  const [captionLanguage, setCaptionLanguage] = useState<"original" | "ru">("original");
   const [hashtags, setHashtags] = useState("");
   const [privacyByAccount, setPrivacyByAccount] = useState<Record<string, SocialPrivacyLevel | "">>({});
   const [accountPrivacy, setAccountPrivacy] = useState<Record<string, { levels: SocialPrivacyLevel[]; requiresPrivateAccount?: boolean; loading?: boolean; error?: string }>>({});
@@ -388,7 +390,7 @@ export function ClipPublishButton({
     }
   };
 
-  const generateCaption = async (id: string) => {
+  const generateCaption = async (id: string, language = captionLanguage) => {
     const connection = activeConnections.find((item) => item.id === id);
     if (!connection) return;
     const request = ++captionRequest.current;
@@ -399,7 +401,12 @@ export function ClipPublishButton({
       const response = await fetch("/api/social/captions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ task_id: taskId, clip_id: clip.id, provider: connection.provider }),
+        body: JSON.stringify({
+          task_id: taskId,
+          clip_id: clip.id,
+          provider: connection.provider,
+          target_language: language === "ru" ? "Russian" : null,
+        }),
       });
       if (!response.ok) throw new Error(await readError(response, t("captionFailed")));
       const data = await response.json();
@@ -415,6 +422,13 @@ export function ClipPublishButton({
     } finally {
       if (request === captionRequest.current) setIsGeneratingCaption(false);
     }
+  };
+
+  const changeCaptionLanguage = (value: string) => {
+    if (value !== "original" && value !== "ru") return;
+    captionRequest.current++;
+    setIsGeneratingCaption(false);
+    setCaptionLanguage(value);
   };
 
   const changeOpen = (value: boolean) => {
@@ -435,6 +449,7 @@ export function ClipPublishButton({
     const nextIds = retained.length ? retained : available.slice(0, 1).map((connection) => connection.id);
     setError(null);
     setSubmissions({});
+    setCaptionLanguage("original");
     const plannedCaption = clip.workflow_meta?.post_caption?.trim();
     setTitle(clip.hook_title
       || (clip.workflow_role === "part" && clip.part_number ? tTask("partLabel", { n: clip.part_number }) : t("clipFallback", { order: clip.clip_order })));
@@ -453,7 +468,7 @@ export function ClipPublishButton({
     }
     setOpen(true);
     // A series part arrives with a caption written for it (it teases the next part); keep it.
-    if (nextIds[0] && !plannedCaption) void generateCaption(nextIds[0]);
+    if (nextIds[0] && !plannedCaption) void generateCaption(nextIds[0], "original");
   };
 
   const toggleAccount = (id: string) => {
@@ -635,6 +650,16 @@ export function ClipPublishButton({
                       {isGeneratingCaption ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
                       {isGeneratingCaption ? t("generatingCaption") : t("generateCaption")}
                     </Button>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor={`publish-caption-language-${clip.id}`}>{locale === "ru" ? "Язык описания" : t("captionLanguage")}</Label>
+                    <Select value={captionLanguage} disabled={isSubmitting} onValueChange={changeCaptionLanguage}>
+                      <SelectTrigger id={`publish-caption-language-${clip.id}`} className="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="original">{locale === "ru" ? "Язык оригинала" : t("originalLanguage")}</SelectItem>
+                        <SelectItem value="ru">{locale === "ru" ? "Русский" : t("russianLanguage")}</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <Textarea
                     id={`publish-caption-${clip.id}`}

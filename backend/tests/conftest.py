@@ -57,13 +57,13 @@ class FakeQueueAdapter:
 
 @pytest.fixture(scope="session")
 def test_database_url():
-    return os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
+    return os.getenv("TEST_DATABASE_URL")
 
 
 @pytest.fixture(scope="session")
 async def initialized_database(test_database_url):
     if not test_database_url:
-        pytest.skip("DATABASE_URL or TEST_DATABASE_URL must be set for backend tests")
+        pytest.skip("Set TEST_DATABASE_URL to a dedicated test database for backend integration tests")
 
     engine = create_async_engine(test_database_url, poolclass=NullPool)
     configure_database(engine=engine)

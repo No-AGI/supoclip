@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   AlertCircle, ArrowRight, ArrowUp, Captions, CaptionsOff, Check, ChevronDown, Clapperboard, Crop, FileVideo, SlidersHorizontal,
   Info, ListOrdered, Loader2, MessageSquareText, Timer, Paperclip, Sparkles, Target, Upload, Link2, Wand2, X,
@@ -138,6 +138,7 @@ function greetingText(t: ReturnType<typeof useTranslations<"home">>, name?: stri
 
 export default function HomeApp() {
   const t = useTranslations("home");
+  const locale = useLocale();
   const tCommon = useTranslations("common");
   const [url, setUrl] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -164,6 +165,7 @@ export default function HomeApp() {
   const [availableTemplates, setAvailableTemplates] = useState<CaptionTemplate[]>([]);
   const [outputFormat, setOutputFormat] = useState<OutputFormat>("vertical");
   const [clipLength, setClipLength] = useState<ClipLength>("auto");
+  const [clipProfile, setClipProfile] = useState<"general" | "gaming_stream">("general");
   const [clipLengthSaveError, setClipLengthSaveError] = useState(false);
   const [isClipLengthLoading, setIsClipLengthLoading] = useState(false);
   const clipLengthEdited = useRef(false);
@@ -785,6 +787,9 @@ export default function HomeApp() {
         remove_filler_words: removeFillerWords,
         filtered_words: normalizedFilteredWords,
       };
+      if (activeWorkflow === "highlights" && clipProfile === "gaming_stream") {
+        request.clip_profile = clipProfile;
+      }
       // Plain highlights without instructions sends exactly the request it always has.
       const options: WorkflowOptions = {};
       if (activeWorkflow !== "highlights") {
@@ -1125,6 +1130,30 @@ export default function HomeApp() {
                   {!usesWorkflowLength && clipLengthSaveError && <p role="status" className="mt-2 text-xs text-destructive">{t("clipLength.saveError")}</p>}
                     </>
                   ) },
+                  ...(activeWorkflow === "highlights" ? [{
+                    id: "clip-profile",
+                    label: locale === "ru" ? "Тип видео" : t("clipProfile.section"),
+                    icon: <Clapperboard />,
+                    value: locale === "ru"
+                      ? clipProfile === "gaming_stream" ? "Игровой стрим" : "Обычное видео"
+                      : t(`clipProfile.${clipProfile === "gaming_stream" ? "gamingStream" : "general"}`),
+                    content: (
+                      <>
+                        <p className="mb-2 text-sm font-medium">{locale === "ru" ? "Тип видео" : t("clipProfile.section")}</p>
+                        <div role="radiogroup" aria-label={locale === "ru" ? "Тип видео" : t("clipProfile.section")} className="grid gap-1">
+                          {(["general", "gaming_stream"] as const).map((profile) => (
+                            <button type="button" role="radio" aria-checked={clipProfile === profile} disabled={controlsDisabled} key={profile} onClick={() => setClipProfile(profile)} className={cn("flex items-center justify-between rounded-lg px-3 py-2 text-sm hover:bg-muted disabled:opacity-50", clipProfile === profile && "bg-muted")}>
+                              <span>{locale === "ru"
+                                ? profile === "gaming_stream" ? "Игровой стрим" : "Обычное видео"
+                                : t(`clipProfile.${profile === "gaming_stream" ? "gamingStream" : "general"}`)}</span>
+                              {clipProfile === profile && <Check className="size-4" />}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="mt-2 text-xs text-muted-foreground">{locale === "ru" ? "Сохраняет объяснение и диалог до реакции; анализирует только транскрипт." : t("clipProfile.hint")}</p>
+                      </>
+                    ),
+                  }] : []),
                   ...(activeWorkflow === "series" ? [{ id: "parts", label: t("parts.title"), icon: <ListOrdered />, value: partLabel, content: (
                     <>
                     <p className="mb-2 text-sm font-medium">{t("parts.title")}</p>

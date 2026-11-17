@@ -45,5 +45,9 @@
     "date": "Data",
     "views": "Visualizações",
     "viewCount": "{count, plural, one {{formatted} visualização} other {{formatted} visualizações}}"
-  }
+  },
+  "clip": "ID do clipe",
+  "clipPerformance": "Desempenho por clipe",
+  "snapshotTime": "Período dos registros",
+  "measuredPosts": "Publicações medidas"
 }

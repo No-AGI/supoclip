@@ -2,6 +2,9 @@
   "generateCaption": "Generar descripción",
   "generatingCaption": "Escribiendo descripción…",
   "captionFailed": "No se pudo generar la descripción. Inténtalo de nuevo o escribe la tuya.",
+  "captionLanguage": "Idioma de la descripción",
+  "originalLanguage": "Idioma original",
+  "russianLanguage": "Ruso",
   "metrics": {
     "view": "vista",
     "views": "vistas",

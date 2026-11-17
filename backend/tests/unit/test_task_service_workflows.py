@@ -23,12 +23,13 @@ from tests.unit.test_task_service import build_clip_result, build_task_service
 
 URL = "upload://source.mp4"
 
-# process_video_complete's keyword arguments before workflows existed (invariant I1).
+# Ordinary highlights retain their pipeline contract, including retry/cache hooks.
 LEGACY_PIPELINE_KWARGS = {
     "url", "source_type", "task_id", "font_family", "font_size", "font_color", "caption_template",
     "processing_mode", "output_format", "add_subtitles", "max_video_duration", "download_quality",
     "cached_transcript", "cached_analysis_json", "progress_callback", "should_cancel",
-    "performance_context", "clip_length", "checkpoint", "checkpoint_callback",
+    "performance_context", "clip_length", "checkpoint", "checkpoint_callback", "clip_profile",
+    "timed_transcript_loader", "timed_transcript_callback", "source_identity_changed",
 }
 
 

@@ -107,6 +107,10 @@ class MemoryEditorStore:
         job = self.jobs_by_id.get(job_id)
         return present_job(job) if job and job["session_id"] == key else None
 
+    async def job_request(self, key, job_id):
+        job = self.jobs_by_id.get(job_id)
+        return copy.deepcopy(job["request"]) if job and job["session_id"] == key else None
+
     async def jobs(self, key, limit=20):
         rows = sorted(
             (j for j in self.jobs_by_id.values() if j["session_id"] == key),

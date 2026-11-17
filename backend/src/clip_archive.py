@@ -30,6 +30,7 @@ import zipfile
 import redis.asyncio as redis
 
 from .config import get_config
+from .clip_naming import clip_download_filename
 from .media_storage import MediaStorage, is_s3
 from .utils.async_helpers import run_in_thread
 
@@ -61,17 +62,14 @@ def slugify(text: str | None, max_chars: int = SLUG_MAX_CHARS) -> str:
     return slug[:max_chars].rstrip("-")
 
 
-def archive_entry_names(clips: list[dict[str, Any]]) -> list[str]:
-    """``01-hook-title.mp4`` in the given order.
-
-    The position prefix keeps names unique even when hook titles repeat.
-    """
-    width = max(2, len(str(len(clips))))
-    names = []
-    for position, clip in enumerate(clips, start=1):
-        label = slugify(clip.get("hook_title")) or f"clip-{slugify(str(clip.get('id', '')))[:8] or position}"
-        names.append(f"{position:0{width}d}-{label}.mp4")
-    return names
+def archive_entry_names(
+    clips: list[dict[str, Any]], source_title: str | None = None
+) -> list[str]:
+    """Readable download names in the given task order."""
+    return [
+        clip_download_filename(clip, source_title, position=position)
+        for position, clip in enumerate(clips, start=1)
+    ]
 
 
 # "Part 3: Title" / "Teil 3 – Title": the label the series pipeline prefixes
@@ -157,11 +155,13 @@ def content_disposition(filename: str) -> str:
 
 
 def resolve_entries(
-    clips: list[dict[str, Any]], storage: MediaStorage, workflow: str | None = None
+    clips: list[dict[str, Any]], storage: MediaStorage, workflow: str | None = None,
+    source_title: str | None = None,
 ) -> list[ArchiveEntry]:
     """Keep only clips whose file exists, with their size, in watch order. Blocking."""
     present = []
-    for clip in order_for_archive(clips, workflow):
+    ordered_clips = order_for_archive(clips, workflow)
+    for position, clip in enumerate(ordered_clips, start=1):
         reference = clip.get("file_path") or ""
         if not reference:
             continue
@@ -173,10 +173,16 @@ def resolve_entries(
         if size is None:
             logger.warning("Skipping clip %s in archive: file is missing", clip.get("id"))
             continue
-        present.append((clip, reference, size))
-    kept = [clip for clip, _, _ in present]
-    names = series_entry_names(kept) if workflow == "series" else archive_entry_names(kept)
-    return [ArchiveEntry(name, reference, size) for name, (_, reference, size) in zip(names, present)]
+        present.append((position, clip, reference, size))
+    kept = [clip for _, clip, _, _ in present]
+    names = series_entry_names(kept) if workflow == "series" else [
+        clip_download_filename(clip, source_title, position=position)
+        for position, clip, _, _ in present
+    ]
+    return [
+        ArchiveEntry(name, reference, size)
+        for name, (_, _, reference, size) in zip(names, present)
+    ]
 
 
 def open_entry(entry: ArchiveEntry, storage: MediaStorage):

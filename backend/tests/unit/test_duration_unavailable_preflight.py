@@ -232,6 +232,33 @@ async def test_youtube_positive_duration_is_billed_normally(monkeypatch, creatio
 
 
 @pytest.mark.asyncio
+async def test_gaming_stream_profile_is_saved_and_enqueued(monkeypatch, creation):
+    monkeypatch.setattr(
+        tasks, "async_get_youtube_video_info",
+        AsyncMock(return_value={"duration": 1800, "title": "Replay"}),
+    )
+    creation.body["clip_profile"] = "gaming_stream"
+
+    await tasks.create_task(creation.request, db=None)
+
+    metadata = tasks._save_task_source_metadata.await_args.args[1]
+    assert metadata["clip_profile"] == "gaming_stream"
+    assert creation.queue.enqueue_processing_job.await_args.args[-1] == "gaming_stream"
+
+
+@pytest.mark.asyncio
+async def test_gaming_stream_profile_rejects_non_highlight_workflows(creation):
+    creation.body.update({"clip_profile": "gaming_stream", "workflow": "recap"})
+
+    with pytest.raises(HTTPException) as error:
+        await tasks.create_task(creation.request, db=None)
+
+    assert error.value.status_code == 422
+    assert "only available for highlights" in error.value.detail
+    creation.queue.enqueue_processing_job.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_youtube_plan_cap_still_applies(monkeypatch, creation):
     monkeypatch.setattr(tasks, "async_get_youtube_video_info", AsyncMock(return_value={"duration": 3 * 3600}))
     with pytest.raises(HTTPException) as error:

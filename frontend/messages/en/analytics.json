@@ -45,5 +45,9 @@
     "date": "Date",
     "views": "Views",
     "viewCount": "{count, plural, one {{formatted} view} other {{formatted} views}}"
-  }
+  },
+  "clip": "Clip ID",
+  "clipPerformance": "Performance by clip",
+  "snapshotTime": "Metrics snapshot window",
+  "measuredPosts": "Measured posts"
 }

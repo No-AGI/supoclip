@@ -419,7 +419,13 @@ class SocialService:
     # Posts
     # ------------------------------------------------------------------
     async def generate_caption(
-        self, user_id: str, *, task_id: str, clip_id: str, provider: str
+        self,
+        user_id: str,
+        *,
+        task_id: str,
+        clip_id: str,
+        provider: str,
+        target_language: Optional[str] = None,
     ) -> Dict[str, str]:
         from .social_caption_service import generate_social_caption
 
@@ -433,10 +439,12 @@ class SocialService:
             raise SocialValidationError("Unsupported social platform")
         if not (clip.get("text") or "").strip():
             raise SocialValidationError("This clip has no transcript to draft a caption from.")
-        if not self.config.anthropic_api_key:
-            raise SocialProviderUnavailable("Caption generation requires ANTHROPIC_API_KEY on the server.")
+        if not self.config.llm_chain():
+            raise SocialProviderUnavailable("Caption generation needs a language model.")
         try:
-            caption = await generate_social_caption(self.config.anthropic_api_key, clip, provider)
+            caption = await generate_social_caption(
+                clip, provider, target_language=target_language
+            )
         except Exception as exc:
             logger.warning("Social caption generation failed (%s)", type(exc).__name__)
             raise SocialProviderUnavailable(
@@ -1077,6 +1085,10 @@ class SocialService:
             "min_posts_for_personalization": min_posts,
             "personalization_active": measured >= min_posts,
         }
+
+    async def get_clip_level_performance(self, user_id: str) -> List[Dict[str, Any]]:
+        """Return latest-snapshot metrics grouped by clip and platform."""
+        return await self.repo.get_clip_level_performance(self.db, user_id)
 
     async def get_views_timeseries(self, user_id: str, days: int = 30) -> Dict[str, Any]:
         """Daily new views for the analytics chart, with every day in the window present."""

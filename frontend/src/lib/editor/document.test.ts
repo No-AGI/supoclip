@@ -3,6 +3,7 @@ import {
   activeWordIndex,
   captionGroups,
   editDuration,
+  effectiveHookTitle,
   frameRect,
   mappedWords,
   outputSize,
@@ -15,6 +16,12 @@ import {
   splitSegment,
 } from "./document";
 import { draft } from "./document.test-fixture";
+
+it("uses a localized hook when present and falls back to the original title", () => {
+  expect(effectiveHookTitle({ ...draft, hookTitle: "Source" })).toBe("Source");
+  expect(effectiveHookTitle({ ...draft, hookTitle: "Source", localizedHookTitle: "Перевод" })).toBe("Перевод");
+  expect(effectiveHookTitle({ ...draft, hookTitle: "Source", localizedHookTitle: null })).toBe("Source");
+});
 
 it("keeps placements local to a caption occurrence across splits and repeated footage", () => {
   const doc = { ...draft, captions: { ...draft.captions, wordsPerLine: 1 }, segments: [{ id: "s", start: 0, end: 3 }, { id: "repeat", start: 0, end: 3 }] };

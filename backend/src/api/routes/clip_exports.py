@@ -75,15 +75,19 @@ async def start_clip_export(
     db: AsyncSession = Depends(get_db),
 ):
     """Queue a preset export. The same clip and options reuse a live or finished job."""
-    task, clip = await _owned_clip(request, db, task_id, clip_id)
+    await _owned_clip(request, db, task_id, clip_id)
     preset_name = await _preset_from_request(request, preset)
+    clips = await TaskService(db).clip_repo.get_clips_by_task(db, task_id)
     queue = getattr(request.app.state, "queue_adapter", None)
     if queue is None:
         from ...workers.job_queue import JobQueue
 
         queue = JobQueue
     try:
-        return await start_export(db, task=task, clip=clip, preset=preset_name, queue=queue)
+        return await start_export(
+            db, task=task, clip=clip, preset=preset_name, queue=queue,
+            position=clip_position(clip, clips),
+        )
     except ExportWorkerUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from None
 
@@ -99,7 +103,7 @@ async def get_clip_export(
     """Return queued, running, succeeded, or failed for one export job."""
     from ...repositories.clip_export_repository import ClipExportRepository
 
-    await _owned_clip(request, db, task_id, clip_id)
+    task, clip = await _owned_clip(request, db, task_id, clip_id)
     row = await ClipExportRepository.get_for_task_clip(db, export_id, task_id, clip_id)
     if not row:
         raise HTTPException(status_code=404, detail="Export not found")
@@ -117,7 +121,7 @@ async def download_clip_export(
     """Stream a finished export, or redirect to a presigned object URL."""
     from ...repositories.clip_export_repository import ClipExportRepository
 
-    task, _clip = await _owned_clip(request, db, task_id, clip_id)
+    task, clip = await _owned_clip(request, db, task_id, clip_id)
     row = await ClipExportRepository.get_for_task_clip(db, export_id, task_id, clip_id)
     if not row:
         raise HTTPException(status_code=404, detail="Export not found")

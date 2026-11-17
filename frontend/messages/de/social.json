@@ -2,6 +2,9 @@
   "generateCaption": "Bildunterschrift erstellen",
   "generatingCaption": "Bildunterschrift wird erstellt…",
   "captionFailed": "Die Bildunterschrift konnte nicht erstellt werden. Versuche es erneut oder schreibe deine eigene.",
+  "captionLanguage": "Sprache der Bildunterschrift",
+  "originalLanguage": "Originalsprache",
+  "russianLanguage": "Russisch",
   "metrics": {
     "view": "Aufruf",
     "views": "Aufrufe",

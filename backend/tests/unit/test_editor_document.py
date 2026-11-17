@@ -32,6 +32,15 @@ def document(**changes):
     )
 
 
+def test_localized_hook_title_is_optional_override_and_source_is_preserved():
+    original = document(hookTitle="Source title")
+    translated = document(hookTitle="Source title", localizedHookTitle="Перевод")
+    restored = document(hookTitle="Source title", localizedHookTitle=None)
+    assert original.hookTitle == "Source title" and original.localizedHookTitle is None
+    assert translated.hookTitle == "Source title" and translated.localizedHookTitle == "Перевод"
+    assert restored.hookTitle == "Source title" and restored.localizedHookTitle is None
+
+
 def test_split_word_is_one_caption_across_contiguous_segments_including_overlaps():
     doc = document(segments=[{"id": "one", "start": 0, "end": .5}, {"id": "two", "start": .5, "end": 1}], words=[
         {"id": "a", "start": 0, "end": 1, "text": "blue", "highlight": True},
@@ -206,6 +215,16 @@ def test_export_keeps_the_hook_title_even_without_captions(tmp_path):
     assert len(events) == 1 and ",Hook," in events[0] and "Stop" in events[0]
     # Timed against the edited 2s duration, not the last segment's 6s source end.
     assert events[0].startswith("Dialogue: 1,0:00:00.12,0:00:01.75,")
+
+    translated_path = tmp_path / "translated.ass"
+    write_ass(
+        translated_path,
+        document(segments=segments, captions={"enabled": False}, hookTitle="Source title", localizedHookTitle="Перевод"),
+        1080,
+        1920,
+    )
+    translated = [line for line in translated_path.read_text().splitlines() if line.startswith("Dialogue:")]
+    assert len(translated) == 1 and "Перевод" in translated[0] and "Source title" not in translated[0]
 
 
 def test_export_follows_editor_highlights_position_and_wrapping(tmp_path):

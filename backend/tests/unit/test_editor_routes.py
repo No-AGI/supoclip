@@ -1,5 +1,8 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+import io
+import json
+import zipfile
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -14,10 +17,13 @@ from src.editor_state import editor_key
 @pytest.fixture
 async def client(tmp_path, monkeypatch, editor_store):
     task = {"id": "task", "user_id": "owner", "status": "completed"}
-    clip = {"id": "clip", "task_id": "task", "filename": "clip.mp4", "file_path": str(tmp_path / "clip.mp4")}
+    clip = {"id": "clip", "task_id": "task", "clip_order": 1, "filename": "clip.mp4", "file_path": str(tmp_path / "clip.mp4")}
     service = SimpleNamespace(
         task_repo=SimpleNamespace(get_task_by_id=AsyncMock(return_value=task)),
-        clip_repo=SimpleNamespace(get_clip_by_id=AsyncMock(return_value=clip)),
+        clip_repo=SimpleNamespace(
+            get_clip_by_id=AsyncMock(return_value=clip),
+            get_clips_by_task=AsyncMock(return_value=[clip]),
+        ),
         config=SimpleNamespace(temp_dir=str(tmp_path)),
     )
     monkeypatch.setattr(editor, "TaskService", lambda db: service)
@@ -96,7 +102,7 @@ async def test_export_snapshot_cancel_and_private_download(client, editor_store)
     job = response.json()["id"]
     # The job carries the document it will render; no file on this machine does.
     stored = editor_store.jobs_by_id[job]
-    assert stored["request"] == {"document": doc, "preset": "reels"}
+    assert stored["request"] == {"document": doc, "preset": "reels", "draft_revision": 0}
     assert not directory.exists() or not list(directory.glob("*.json"))
     queued = editor.JobQueue.enqueue_job.await_args
     assert queued.args == ("export_editor", "task", "clip", "clip.mp4", job)
@@ -115,6 +121,196 @@ async def test_export_snapshot_cancel_and_private_download(client, editor_store)
     assert (
         await http.get("/tasks/task/clips/clip/editor/exports/not-a-job")
     ).status_code == 404
+
+
+async def test_publish_package_pairs_srt_with_completed_job_snapshot(client, editor_store, monkeypatch):
+    http, service, doc, directory = client
+    document = {
+        **doc,
+        "words": [
+            {"id": "w1", "start": 0.1, "end": 0.4, "text": "Saved"},
+            {"id": "w2", "start": 0.5, "end": 0.8, "text": "revision."},
+        ],
+    }
+    saved = await http.patch(
+        "/tasks/task/clips/clip/editor",
+        json={"basis": "clip.mp4", "revision": 0, "document": document},
+    )
+    assert saved.status_code == 200
+    created = await http.post(
+        "/tasks/task/clips/clip/editor/exports",
+        json={"basis": "clip.mp4", "document": document, "preset": "reels"},
+    )
+    job_id = created.json()["id"]
+    stored = editor_store.jobs_by_id[job_id]
+    assert stored["request"]["draft_revision"] == 1
+    claim = (await editor_store.start_job(job_id))["claim"]
+    await editor_store.finish_job(job_id, claim, "completed")
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"export-{job_id}.mp4").write_bytes(b"exact export")
+
+    # A later saved draft must not change the subtitle paired with this job.
+    later = {**document, "words": [{"id": "w3", "start": 0.2, "end": 0.7, "text": "Later."}]}
+    assert (await http.patch(
+        "/tasks/task/clips/clip/editor",
+        json={"basis": "clip.mp4", "revision": 1, "document": later},
+    )).status_code == 200
+
+    def cover(source, target):
+        target.write_bytes(b"cover from exact job")
+        return True
+
+    monkeypatch.setattr("src.services.editor_publish_package._extract_cover", cover)
+    response = await http.get(f"/tasks/task/clips/clip/editor/exports/{job_id}/publish.zip")
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert set(archive.namelist()) == {
+            "clip_01 - Clip_editor.mp4", "captions.srt", "cover.jpg", "manifest.json",
+        }
+        assert archive.read("clip_01 - Clip_editor.mp4") == b"exact export"
+        assert "Saved revision." in archive.read("captions.srt").decode()
+        manifest = json.loads(archive.read("manifest.json"))
+        assert manifest["draft_revision"] == 1
+        assert {item["file"] for item in manifest["missing"]} == {
+            "social_caption.txt", "social_hashtags.txt",
+        }
+
+
+async def test_publish_package_rejects_export_without_saved_revision(client, editor_store):
+    http, service, doc, directory = client
+    job_id = "d" * 32
+    key = editor_key("task", "clip", "clip.mp4")
+    await editor_store.create_job(key, job_id, "export", {"document": doc, "preset": "reels"})
+    claim = (await editor_store.start_job(job_id))["claim"]
+    await editor_store.finish_job(job_id, claim, "completed")
+    response = await http.get(f"/tasks/task/clips/clip/editor/exports/{job_id}/publish.zip")
+    assert response.status_code == 409
+
+
+async def test_publish_package_post_includes_user_supplied_social_text(client, editor_store, monkeypatch):
+    http, service, doc, directory = client
+    job_id = "e" * 32
+    key = editor_key("task", "clip", "clip.mp4")
+    await editor_store.create_job(key, job_id, "export", {
+        "document": doc, "preset": "reels", "draft_revision": 0,
+    })
+    claim = (await editor_store.start_job(job_id))["claim"]
+    await editor_store.finish_job(job_id, claim, "completed")
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"export-{job_id}.mp4").write_bytes(b"exact export")
+    monkeypatch.setattr("src.services.editor_publish_package._extract_cover", lambda source, target: False)
+
+    response = await http.post(
+        f"/tasks/task/clips/clip/editor/exports/{job_id}/publish.zip",
+        data={"caption": "Editable caption", "hashtags": "#Keep  #These\nexactly"},
+    )
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert archive.read("social_caption.txt").decode() == "Editable caption"
+        assert archive.read("social_hashtags.txt").decode() == "#Keep  #These\nexactly"
+        manifest = json.loads(archive.read("manifest.json"))
+        assert not {item["file"] for item in manifest["missing"]} & {
+            "social_caption.txt", "social_hashtags.txt"
+        }
+
+
+async def test_publish_package_post_rejects_oversized_social_text(client, editor_store):
+    http, service, doc, directory = client
+    job_id = "f" * 32
+    key = editor_key("task", "clip", "clip.mp4")
+    await editor_store.create_job(key, job_id, "export", {
+        "document": doc, "preset": "reels", "draft_revision": 0,
+    })
+    claim = (await editor_store.start_job(job_id))["claim"]
+    await editor_store.finish_job(job_id, claim, "completed")
+    response = await http.post(
+        f"/tasks/task/clips/clip/editor/exports/{job_id}/publish.zip",
+        data={"caption": "x" * 2201},
+    )
+    assert response.status_code == 422
+
+
+async def test_publish_package_post_marks_blank_social_text_missing(client, editor_store):
+    http, service, doc, directory = client
+    job_id = "a" * 32
+    key = editor_key("task", "clip", "clip.mp4")
+    await editor_store.create_job(key, job_id, "export", {
+        "document": doc, "preset": "reels", "draft_revision": 0,
+    })
+    claim = (await editor_store.start_job(job_id))["claim"]
+    await editor_store.finish_job(job_id, claim, "completed")
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"export-{job_id}.mp4").write_bytes(b"exact export")
+
+    response = await http.post(
+        f"/tasks/task/clips/clip/editor/exports/{job_id}/publish.zip",
+        data={"caption": "  \n", "hashtags": ""},
+    )
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert "social_caption.txt" not in archive.namelist()
+        assert "social_hashtags.txt" not in archive.namelist()
+        missing = {item["file"] for item in json.loads(archive.read("manifest.json"))["missing"]}
+        assert {"social_caption.txt", "social_hashtags.txt"} <= missing
+
+
+async def test_srt_download_uses_only_the_saved_draft_and_phrase_groups(client):
+    http, _, doc, _ = client
+    translated = {
+        **doc,
+        "words": [
+            {"id": "t1", "start": 0.1, "end": 0.3, "text": "Добрый"},
+            {"id": "t2", "start": 0.3, "end": 0.55, "text": "день!"},
+            {"id": "t3", "start": 1.8, "end": 2, "text": "Пока."},
+        ],
+        "captions": {"wordsPerLine": 4},
+        "translation": {
+            "sourceLanguage": "en",
+            "targetLanguage": "ru",
+            "phrases": [
+                {"id": "p1", "start": 0.1, "end": 0.55, "wordIds": ["t1", "t2"]},
+                {"id": "p2", "start": 1.8, "end": 2, "wordIds": ["t3"]},
+            ],
+        },
+    }
+    saved = await http.patch(
+        "/tasks/task/clips/clip/editor",
+        json={"basis": "clip.mp4", "revision": 0, "document": translated},
+    )
+    assert saved.status_code == 200
+    response = await http.get("/tasks/task/clips/clip/editor/captions.srt")
+    assert response.status_code == 200
+    assert response.headers["content-disposition"].endswith(".srt")
+    assert response.text == (
+        "1\n00:00:00,100 --> 00:00:00,550\nДобрый день!\n\n"
+        "2\n00:00:01,800 --> 00:00:02,000\nПока.\n"
+    )
+
+
+async def test_srt_download_rejects_disabled_or_missing_saved_captions(client):
+    http, _, doc, _ = client
+    no_words = await http.get("/tasks/task/clips/clip/editor/captions.srt")
+    assert no_words.status_code == 409
+    disabled = {
+        **doc,
+        "words": [{"id": "w", "start": 0.1, "end": 0.5, "text": "Hello."}],
+        "captions": {"enabled": False},
+    }
+    response = await http.patch(
+        "/tasks/task/clips/clip/editor",
+        json={"basis": "clip.mp4", "revision": 0, "document": disabled},
+    )
+    assert response.status_code == 200
+    assert (await http.get("/tasks/task/clips/clip/editor/captions.srt")).status_code == 409
+
+
+async def test_srt_download_requires_clip_ownership(client, monkeypatch):
+    http, _, _, _ = client
+    monkeypatch.setattr(
+        "src.api.routes.tasks._get_user_id_from_headers",
+        AsyncMock(return_value="outsider"),
+    )
+    assert (await http.get("/tasks/task/clips/clip/editor/captions.srt")).status_code == 403
 
 
 async def test_failed_enqueue_is_retryable(client, monkeypatch):
@@ -221,6 +417,10 @@ async def test_local_preview_and_export_survive_storage_outage(client, monkeypat
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "clean.mp4").write_bytes(b"local preview")
     job = "f" * 32
+    service.clip_repo.get_clips_by_task.return_value = [
+        {"id": "deleted-before-this-clip"},
+        service.clip_repo.get_clip_by_id.return_value,
+    ]
     key = editor_key("task", "clip", "clip.mp4")
     await editor_store.create_job(key, job, "export", {"document": doc, "preset": "tiktok"})
     claim = (await editor_store.start_job(job))["claim"]
@@ -234,6 +434,7 @@ async def test_local_preview_and_export_survive_storage_outage(client, monkeypat
     assert preview.status_code == export.status_code == 200
     assert preview.content == b"local preview"
     assert export.content == b"local export"
+    assert export.headers["content-disposition"] == "attachment; filename*=utf-8''clip_02%20-%20Clip_editor.mp4"
 
 
 async def test_old_drafts_regain_template_animation_and_hook_title(client, editor_store):

@@ -11,7 +11,8 @@ from .edit_transaction import TaskCancelled, commit_unless_editing
 
 
 def checkpoint_input_key(url: str, source_type: str, processing_mode: str,
-                         clip_length: str, config: Any) -> str:
+                         clip_length: str, config: Any,
+                         clip_profile: str = "general") -> str:
     # Provider/language changes invalidate word timings. Rendering preferences
     # don't: retries keep completed clips and apply current styling to new ones.
     inputs = {
@@ -21,6 +22,8 @@ def checkpoint_input_key(url: str, source_type: str, processing_mode: str,
         "transcription_language": getattr(config, "transcription_language", ""),
         "whisper_model": getattr(config, "whisper_model", ""),
     }
+    if clip_profile != "general":
+        inputs["clip_profile"] = f"{clip_profile}:v1"
     return hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
 
 
@@ -28,10 +31,22 @@ class TaskCheckpointRepository:
     @staticmethod
     async def get(db: AsyncSession, task_id: str, input_key: str) -> dict[str, Any]:
         result = await db.execute(text("""
-            SELECT payload FROM task_processing_checkpoints
-            WHERE task_id = :task_id AND input_key = :input_key
-        """), {"task_id": task_id, "input_key": input_key})
-        return result.scalar_one_or_none() or {}
+            SELECT input_key, payload FROM task_processing_checkpoints
+            WHERE task_id = :task_id
+        """), {"task_id": task_id})
+        row = result.mappings().first()
+        if not row:
+            return {}
+        payload = row["payload"] or {}
+        if row["input_key"] != input_key:
+            # Invalidating results must not hide a submitted/uncertain paid job.
+            if payload.get("transcription_job") or payload.get("transcript"):
+                raise ValueError(
+                    "Task inputs changed after paid transcription. Restore the original "
+                    "settings or create a new task; saved progress is kept."
+                )
+            return {}
+        return payload
 
     @staticmethod
     async def save(db: AsyncSession, task_id: str, input_key: str,

@@ -21,6 +21,7 @@ from arq.constants import in_progress_key_prefix, job_key_prefix
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..clip_editor import ExportCancelled, export_with_preset
+from ..clip_naming import clip_download_filename
 from ..config import get_config
 from ..media_storage import STORAGE_ERRORS, MediaStorage, is_s3, media_work
 from ..observability import set_trace_id, set_user_id
@@ -287,6 +288,7 @@ async def start_export(
     clip: dict,
     preset: str,
     queue,
+    position: int | None = None,
 ) -> dict:
     options_hash = export_options_hash(preset, clip["file_path"])
     await ClipExportRepository.lock_options(db, clip["id"], options_hash)
@@ -321,7 +323,9 @@ async def start_export(
         preset=preset,
         options_hash=options_hash,
         source_file_path=clip["file_path"],
-        download_filename=export_download_filename(clip["filename"], preset),
+        download_filename=clip_download_filename(
+            clip, task.get("source_title"), position=position, preset=preset
+        ),
         ttl_seconds=CLIP_EXPORT_TTL_SECONDS,
     )
     await db.commit()

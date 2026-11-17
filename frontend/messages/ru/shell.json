@@ -1,0 +1,10 @@
+{
+  "nav": {"create": "Создать", "library": "Библиотека", "social": "Соцсети", "analytics": "Аналитика", "agents": "Агенты и API", "settings": "Настройки", "admin": "Управление", "newGeneration": "Новая генерация"},
+  "search": {"generations": "Поиск генераций", "label": "Поиск", "mainNav": "Основная навигация", "mobileNav": "Мобильная навигация", "dialog": "Поиск", "placeholder": "Найти генерацию или перейти…", "inputLabel": "Найти генерацию или перейти на страницу", "empty": "По запросу «{query}» ничего не найдено."},
+  "palette": {"newHint": "Вставить ссылку или загрузить файл", "library": "Открыть библиотеку", "social": "Аккаунты соцсетей", "socialHint": "Подключить YouTube, TikTok и Instagram", "analyticsHint": "Результаты опубликованных клипов", "agentsHint": "Ключи API и MCP"},
+  "usage": {"pickPlan": "Выберите тариф для создания клипов", "moreWith": "Больше возможностей с {name}", "left": "Осталось за период: {count}", "videosThisPeriod": "видео за период", "minutesOf": "{used} / {limit} мин", "minutes": "{used} мин", "minutesLeft": "Осталось в этом месяце: {count} мин", "minutesThisMonth": "минут видео в этом месяце"},
+  "user": {"creator": "Автор", "signOut": "Выйти", "signingOut": "Выход…", "signOutError": "Не удалось выйти. Попробуйте ещё раз."},
+  "theme": {"toggle": "Переключить светлую или тёмную тему"},
+  "announcements": {"whatsNew": "Что нового", "whatsNewUnread": "Что нового: {count, plural, one {# непрочитанное объявление} few {# непрочитанных объявления} many {# непрочитанных объявлений} other {# непрочитанного объявления}}", "title": "Что нового в SupoClip", "close": "Закрыть объявления", "popover": "Объявления", "new": "Новое"},
+  "feedback": {"title": "Обратная связь", "category": "Категория", "bug": "Сообщить об ошибке", "feature": "Предложить функцию", "general": "Общий отзыв", "sales": "Вопрос об оплате и покупке", "placeholder": "Расскажите, что вас интересует…", "submit": "Отправить", "success": "Отзыв отправлен — спасибо!", "failed": "Не удалось отправить отзыв", "error": "Что-то пошло не так"}
+}

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable, Awaitable
 import logging
 import json
+import hashlib
 import subprocess
 import uuid
 
@@ -110,6 +111,81 @@ from ..stream_source import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _select_transcript_pair(
+    checkpoint_text: Optional[str],
+    checkpoint_data: Any,
+    timed_cache_data: Any,
+    cached_text: Optional[str],
+) -> tuple[Optional[str], Optional[Dict[str, Any]], bool]:
+    """Keep transcript text paired with the timing source it came from."""
+    if checkpoint_text:
+        words = checkpoint_data.get("words") if isinstance(checkpoint_data, dict) else None
+        return checkpoint_text, checkpoint_data if words else None, bool(words)
+    if (
+        isinstance(timed_cache_data, dict)
+        and isinstance(timed_cache_data.get("text"), str)
+        and timed_cache_data.get("text")
+        and timed_cache_data.get("words")
+    ):
+        return timed_cache_data["text"], timed_cache_data, True
+    return cached_text, None, False
+
+
+def _checkpoint_source_mismatch(
+    source_type: str,
+    checkpoint_text: Optional[str],
+    recorded_fingerprint: Optional[str],
+    current_fingerprint: Optional[str],
+) -> bool:
+    return bool(
+        checkpoint_text
+        and recorded_fingerprint
+        and current_fingerprint
+        and recorded_fingerprint != current_fingerprint
+    )
+
+
+def _analysis_cache_for_source(
+    source_type: str,
+    source_fingerprint: Optional[str],
+    url_cached_analysis: Optional[str],
+) -> Optional[str]:
+    """URL-keyed analysis has no proof it belongs to content-addressed bytes."""
+    if source_type == "youtube" and source_fingerprint:
+        return None
+    return url_cached_analysis
+
+
+def _transcript_cache_for_source(
+    source_type: str,
+    source_fingerprint: Optional[str],
+    url_cached_transcript: Optional[str],
+) -> Optional[str]:
+    """URL cache text has no proof it belongs to content-addressed bytes."""
+    if source_type == "youtube" and source_fingerprint:
+        return None
+    return url_cached_transcript
+
+
+async def _hash_source_with_cancellation(
+    path: Path,
+    should_cancel: Optional[Callable[[], Awaitable[bool]]],
+) -> str:
+    digest = hashlib.sha256()
+    source = await run_in_thread(path.open, "rb")
+    try:
+        while True:
+            chunk = await run_in_thread(source.read, 1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+            if should_cancel and await should_cancel():
+                raise Exception("Task cancelled")
+    finally:
+        await run_in_thread(source.close)
+    return digest.hexdigest()
 UPLOAD_URL_PREFIX = "upload://"
 OPENING_CONTEXT_SECONDS = 10.0
 
@@ -810,6 +886,7 @@ class VideoService:
         performance_context: Optional[str] = None,
         clip_length: str = "auto",
         instructions: Optional[str] = None,
+        clip_profile: str = "general",
     ) -> Any:
         """
         Analyze transcript with AI to find relevant segments.
@@ -824,6 +901,7 @@ class VideoService:
             performance_context=performance_context,
             clip_length=clip_length,
             include_reserve=True,
+            clip_profile=clip_profile,
             **({"instructions": instructions} if instructions else {}),
         )
         logger.info(
@@ -1146,6 +1224,7 @@ class VideoService:
         runtime_config: Any,
         checkpoint: Dict[str, Any],
         save_checkpoint: Callable[[Dict[str, Any]], Awaitable[None]],
+        clip_profile: str = "general",
         instructions: Optional[str] = None,
         max_clips: Optional[int] = None,
     ) -> tuple[Any, List[Dict[str, Any]], int, bool]:
@@ -1209,6 +1288,7 @@ class VideoService:
                 clip_signals=clip_signals,
                 performance_context=performance_context,
                 clip_length=clip_length,
+                **({"clip_profile": clip_profile} if clip_profile != "general" else {}),
                 **({"instructions": instructions} if instructions else {}),
             )
 
@@ -1328,6 +1408,13 @@ class VideoService:
         max_video_duration: Optional[int] = None,
         download_quality: Optional[str] = None,
         cached_transcript: Optional[str] = None,
+        timed_transcript_loader: Optional[
+            Callable[[str], Awaitable[Optional[Dict[str, Any]]]]
+        ] = None,
+        timed_transcript_callback: Optional[
+            Callable[[str, Dict[str, Any]], Awaitable[None]]
+        ] = None,
+        source_identity_changed: Optional[Callable[[], Awaitable[None]]] = None,
         cached_analysis_json: Optional[str] = None,
         progress_callback: Optional[Callable[[int, str, str], Awaitable[None]]] = None,
         should_cancel: Optional[Callable[[], Awaitable[bool]]] = None,
@@ -1340,6 +1427,7 @@ class VideoService:
         plan_cache: Optional[PlanCache] = None,
         outline_cache_key: Optional[str] = None,
         cleanup_settings: Optional[Dict[str, Any]] = None,
+        clip_profile: str = "general",
     ) -> Dict[str, Any]:
         """
         Complete video processing pipeline.
@@ -1509,15 +1597,83 @@ class VideoService:
             if progress_callback:
                 await progress_callback(30, "Generating transcript...", "processing")
 
-            transcript = checkpoint.get("transcript") or cached_transcript
-            transcript_data = checkpoint.get("transcript_data")
-            if transcript and isinstance(transcript_data, dict) and transcript_data.get("words"):
+            source_fingerprint = None
+            cached_timed_transcript_data = None
+            if checkpoint_callback or (source_type == "youtube" and timed_transcript_loader):
+                source_fingerprint = await _hash_source_with_cancellation(
+                    video_path, should_cancel
+                )
+            if source_type == "youtube" and timed_transcript_loader:
+                # The shared analysis cache is keyed by URL, which can outlive
+                # edits to the video. Keep task-owned checkpoint analysis,
+                # whose source fingerprint is validated below, but don't pair
+                # an unproven URL analysis with this byte-identified source.
+                cached_analysis_json = _analysis_cache_for_source(
+                    source_type, source_fingerprint, cached_analysis_json
+                )
+                cached_transcript = _transcript_cache_for_source(
+                    source_type, source_fingerprint, cached_transcript
+                )
+            from ..repositories.timed_transcript_cache_repository import timed_transcript_provenance
+            current_provenance = timed_transcript_provenance(runtime_config, processing_mode)
+            recorded_provenance = checkpoint.get("transcript_provenance") or (
+                checkpoint.get("transcription_job") or {}
+            ).get("provenance")
+            if recorded_provenance and recorded_provenance != current_provenance:
+                raise ValueError(
+                    "The transcription settings changed. Restore the original settings "
+                    "or create a new task; saved progress is kept."
+                )
+            checkpoint_transcript = checkpoint.get("transcript")
+            checkpoint_data = checkpoint.get("transcript_data")
+            recorded_fingerprint = checkpoint.get("source_content_fingerprint")
+            # Legacy checkpoints have no content digest. Preserve their retry
+            # contract and never let a cross-task cache replace them.
+            legacy_checkpoint = bool(checkpoint_transcript and not recorded_fingerprint)
+            source_mismatch = _checkpoint_source_mismatch(
+                source_type,
+                checkpoint_transcript,
+                recorded_fingerprint,
+                source_fingerprint,
+            )
+            if source_mismatch:
+                # Never overwrite paid progress or attach old sidecars to new bytes.
+                raise ValueError(
+                    "The source content changed. Create a new task for this source; "
+                    "saved progress is kept."
+                )
+            if not checkpoint_transcript and not legacy_checkpoint and source_fingerprint and timed_transcript_loader:
+                try:
+                    cached_timed_transcript_data = await timed_transcript_loader(
+                        source_fingerprint
+                    )
+                except Exception:
+                    logger.warning("Timed transcript cache read failed; continuing without cache", exc_info=True)
+            # The text and timings are either task-checkpoint paired or read
+            # together from one content-addressed row.
+            transcript, reusable_transcript_data, cacheable_transcript = (
+                _select_transcript_pair(
+                    checkpoint_transcript,
+                    checkpoint_data,
+                    cached_timed_transcript_data,
+                    cached_transcript,
+                )
+            )
+            if legacy_checkpoint:
+                # Preserve old task retries, but an unverified legacy pair
+                # must not be written into the new content-addressed cache.
+                cacheable_transcript = False
+            if (
+                transcript
+                and isinstance(reusable_transcript_data, dict)
+                and reusable_transcript_data.get("words")
+            ):
                 # The source cache may have expired or moved to another worker.
                 # Restore the original-source timings, not a stitched timeline.
                 sidecar = video_path.with_suffix(".transcript_cache.json")
                 temporary = sidecar.with_name(f".{sidecar.name}.{uuid.uuid4().hex}.tmp")
                 try:
-                    await run_in_thread(temporary.write_text, json.dumps(transcript_data))
+                    await run_in_thread(temporary.write_text, json.dumps(reusable_transcript_data))
                     await run_in_thread(temporary.replace, sidecar)
                 finally:
                     temporary.unlink(missing_ok=True)
@@ -1529,11 +1685,48 @@ class VideoService:
                 and not (load_cached_transcript_data(video_path) or {}).get("words")
             )
             if not transcript or needs_word_timings:
-                transcript = await VideoService.generate_transcript(
-                    video_path,
-                    processing_mode=processing_mode,
-                    source_url=url if source_type == "youtube" else None,
+                from ..media.transcription import assemblyai_job_context
+                from ..repositories.timed_transcript_cache_repository import timed_transcript_provenance
+                loop = asyncio.get_running_loop()
+                # Persist identity before submission, including jobs that never
+                # reached the completed-transcript checkpoint.
+                job_fingerprint = source_fingerprint
+                if checkpoint_callback and runtime_config.transcription_provider == "assemblyai":
+                    job_fingerprint = job_fingerprint or await _hash_source_with_cancellation(
+                        video_path, should_cancel
+                    )
+                job_provenance = timed_transcript_provenance(runtime_config, processing_mode)
+                provider_job = checkpoint.get("transcription_job")
+                if provider_job and (
+                    provider_job.get("source_fingerprint") != job_fingerprint
+                    or provider_job.get("provenance") != job_provenance
+                ):
+                    raise ValueError(
+                        "The source or transcription settings changed during a paid job. "
+                        "Restore the original settings or create a new task."
+                    )
+
+                def persist_provider_job(job):
+                    # The AsyncSession stays on its owning event-loop thread.
+                    asyncio.run_coroutine_threadsafe(save_checkpoint({
+                        "transcription_job": {
+                            **job, "source_fingerprint": job_fingerprint,
+                            "provenance": job_provenance,
+                        },
+                    }), loop).result()
+
+                token = assemblyai_job_context.set(
+                    (provider_job, persist_provider_job) if checkpoint_callback else None
                 )
+                try:
+                    transcript = await VideoService.generate_transcript(
+                        video_path,
+                        processing_mode=processing_mode,
+                        source_url=url if source_type == "youtube" else None,
+                    )
+                finally:
+                    assemblyai_job_context.reset(token)
+                cacheable_transcript = True
                 if checkpoint.get("analysis") or checkpoint.get("workflow_final"):
                     # Never combine new word timings with an old clip plan.
                     await save_checkpoint({
@@ -1545,8 +1738,24 @@ class VideoService:
             # can fail. The DB copy also repairs an absent word-timing sidecar.
             await save_checkpoint({
                 "transcript": transcript,
+                "transcript_provenance": current_provenance if not legacy_checkpoint else recorded_provenance,
                 "transcript_data": await run_in_thread(load_cached_transcript_data, video_path),
+                **(
+                    {"source_content_fingerprint": source_fingerprint}
+                    if source_fingerprint and cacheable_transcript
+                    else {}
+                ),
             })
+            completed_transcript_data = await run_in_thread(load_cached_transcript_data, video_path)
+            if (
+                timed_transcript_callback
+                and source_fingerprint
+                and cacheable_transcript
+                and completed_transcript_data
+            ):
+                await timed_transcript_callback(
+                    source_fingerprint, completed_transcript_data
+                )
 
             # Preserve paid word timings before any analysis/cancellation path.
             try:
@@ -1575,6 +1784,7 @@ class VideoService:
                     runtime_config=runtime_config,
                     checkpoint=checkpoint,
                     save_checkpoint=save_checkpoint,
+                    **({"clip_profile": clip_profile} if clip_profile != "general" else {}),
                     **({"instructions": instructions} if instructions else {}),
                     **({"max_clips": requested_clips} if requested_clips is not None else {}),
                 )

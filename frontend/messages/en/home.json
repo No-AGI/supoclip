@@ -135,6 +135,12 @@
     "hint": "Target length before pause and filler removal. Your choice is saved as your default.",
     "saveError": "Could not save your default. This video will still use your choice."
   },
+  "clipProfile": {
+    "section": "Clip selection",
+    "general": "General video",
+    "gamingStream": "Gaming stream",
+    "hint": "Keeps the explanation and dialogue before a reaction; selection uses the transcript only."
+  },
   "whatToMake": "What do you want to make?",
   "workflows": {
     "highlights": {

@@ -26,6 +26,10 @@ from ..repositories.source_repository import SourceRepository
 from ..repositories.clip_repository import ClipRepository
 from ..repositories.cache_repository import CacheRepository
 from ..repositories.task_checkpoint_repository import TaskCheckpointRepository, checkpoint_input_key
+from ..repositories.timed_transcript_cache_repository import (
+    TimedTranscriptCacheRepository,
+    timed_transcript_provenance,
+)
 from .video_service import VideoService
 from .clip_service import ClipEditingMixin, fill_output_starts
 from ..repositories.edit_transaction import serialized_task_edit, task_edit_transaction, TaskCancelled
@@ -88,11 +92,15 @@ class _ProcessingPlanCache:
         self._lock = session_lock or asyncio.Lock()
 
     async def load(self, key: str) -> Optional[str]:
+        if self.source_type == "youtube":
+            return None
         async with self._lock:
             row = await self.cache_repo.get_cache(self.db, key)
         return row.get("analysis_json") if row else None
 
     async def store(self, key: str, payload: str) -> None:
+        if self.source_type == "youtube":
+            return  # Task checkpoints preserve these plans instead of URL rows.
         async with self._lock:
             await self.cache_repo.upsert_cache(
                 self.db,
@@ -180,15 +188,24 @@ class TaskService(ClipEditingMixin):
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     @staticmethod
-    def _build_analysis_cache_key(cache_key: str, clip_length: str = "auto") -> str:
+    def _build_analysis_cache_key(
+        cache_key: str,
+        clip_length: str = "auto",
+        clip_profile: str = "general",
+    ) -> str:
         """Row holding the analysis for a preset. Auto keeps the source row.
 
         The source and transcript do not depend on the preset, so other presets
-        store only their analysis under a derived key and share the rest.
+        store only their analysis under a derived key and share the rest. An
+        opt-in selection profile always gets a separate analysis row.
         """
-        if validate_clip_length(clip_length) == "auto":
+        if validate_clip_length(clip_length) == "auto" and clip_profile == "general":
             return cache_key
-        payload = f"{cache_key}|length:{clip_length}"
+        payload = cache_key
+        if validate_clip_length(clip_length) != "auto":
+            payload += f"|length:{clip_length}"
+        if clip_profile == "gaming_stream":
+            payload += "|profile:gaming_stream:v1"
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     @staticmethod
@@ -490,6 +507,7 @@ class TaskService(ClipEditingMixin):
         clip_ready_callback: Optional[Callable] = None,
         cleanup_settings: Optional[Dict[str, Any]] = None,
         clip_length: str = "auto",
+        clip_profile: str = "general",
     ) -> Dict[str, Any]:
         """
         Process a task: download video, analyze, create clips.
@@ -508,6 +526,7 @@ class TaskService(ClipEditingMixin):
         # For the task_completed / task_failed product events.
         started_at: Optional[datetime] = None
         cache_hit: Optional[bool] = None
+        completion_committed = False
 
         async def check_cancelled():
             if should_cancel and await should_cancel():
@@ -520,6 +539,13 @@ class TaskService(ClipEditingMixin):
             # honour it with the ARQ job arguments unchanged.
             task_row = await self.task_repo.get_task_by_id(self.db, task_id) or {}
             spec = workflow_spec_from_task(task_row, clip_length)
+            # Profiles currently apply only to ordinary highlights. Other
+            # workflow types keep their established selection and cache path.
+            clip_profile = (
+                "gaming_stream"
+                if clip_profile == "gaming_stream" and spec.legacy
+                else "general"
+            )
             prior_outputs = bool(await self.clip_repo.get_clips_by_task(self.db, task_id))
             # New tasks already have an atomic acceptance charge. Recover queued
             # legacy jobs with missing durations before doing paid processing.
@@ -542,7 +568,9 @@ class TaskService(ClipEditingMixin):
                 url, source_type, processing_mode, download_quality
             )
             if spec.legacy:
-                analysis_cache_key = self._build_analysis_cache_key(cache_key, clip_length)
+                analysis_cache_key = self._build_analysis_cache_key(
+                    cache_key, clip_length, clip_profile
+                )
             else:
                 analysis_cache_key = self._build_workflow_cache_key(
                     cache_key, spec, self.config, cleanup_settings
@@ -552,6 +580,12 @@ class TaskService(ClipEditingMixin):
             cache_entry = await self.cache_repo.get_cache(self.db, cache_key)
             cached_transcript = (
                 cache_entry.get("transcript_text") if cache_entry else None
+            )
+            timed_cache_allowed = bool(user_id and source_type == "youtube")
+            timed_transcript_provenance_value = (
+                timed_transcript_provenance(self.config, processing_mode)
+                if timed_cache_allowed
+                else None
             )
             analysis_entry = (
                 cache_entry
@@ -572,7 +606,10 @@ class TaskService(ClipEditingMixin):
             )
             if performance_context:
                 cached_analysis_json = None
-            input_key = checkpoint_input_key(url, source_type, processing_mode, clip_length, self.config)
+            input_key = checkpoint_input_key(
+                url, source_type, processing_mode, clip_length, self.config,
+                clip_profile=clip_profile,
+            )
             checkpoint = await self.checkpoint_repo.get(self.db, task_id, input_key)
             cache_hit = bool(
                 (checkpoint.get("transcript") or cached_transcript)
@@ -582,6 +619,64 @@ class TaskService(ClipEditingMixin):
             async def save_checkpoint(patch: Dict[str, Any]) -> None:
                 await self.checkpoint_repo.save(self.db, task_id, input_key, patch)
                 checkpoint.update(patch)
+
+            async def source_identity_changed() -> None:
+                nonlocal cached_analysis_json
+                # Preserve edited/exported clips rather than mixing source versions.
+                if prior_outputs:
+                    raise ValueError(
+                        "The source content changed. Create a new task for this source; "
+                        "your previously completed clips are kept."
+                    )
+                cached_analysis_json = None
+                await save_checkpoint({
+                    "transcript": None,
+                    "transcript_data": None,
+                    "analysis": None,
+                    "candidates": None,
+                    "segments": None,
+                    "workflow_final": None,
+                })
+                await self.task_repo.save_workflow_plan(self.db, task_id, None)
+
+            async def load_timed_transcript(source_fingerprint: str) -> Optional[Dict[str, Any]]:
+                if not timed_cache_allowed or not timed_transcript_provenance_value:
+                    return None
+                try:
+                    return await TimedTranscriptCacheRepository.get(
+                        self.db,
+                        user_id,
+                        source_fingerprint,
+                        timed_transcript_provenance_value,
+                    )
+                except Exception:
+                    logger.warning("Timed transcript cache read failed; continuing without cache", exc_info=True)
+                    try:
+                        await self.db.rollback()
+                    except Exception:
+                        logger.warning("Timed transcript cache read rollback failed", exc_info=True)
+                    return None
+
+            async def save_timed_transcript(
+                source_fingerprint: str, transcript_data: Dict[str, Any]
+            ) -> None:
+                if timed_cache_allowed and timed_transcript_provenance_value:
+                    try:
+                        await TimedTranscriptCacheRepository.save(
+                            self.db,
+                            user_id,
+                            source_fingerprint,
+                            timed_transcript_provenance_value,
+                            transcript_data,
+                        )
+                    except Exception:
+                        # Transcription has already been checkpointed. A cache
+                        # write failure must never discard paid transcript work.
+                        logger.warning("Timed transcript cache write failed", exc_info=True)
+                        try:
+                            await self.db.rollback()
+                        except Exception:
+                            logger.warning("Timed transcript cache write rollback failed", exc_info=True)
 
             await self.task_repo.update_task_runtime_metadata(
                 self.db,
@@ -644,6 +739,8 @@ class TaskService(ClipEditingMixin):
             if not spec.legacy:
                 workflow_kwargs = {
                     "workflow_spec": spec,
+                    # processing_cache plan/outline rows are URL-keyed and
+                    # cannot prove they belong to the downloaded YouTube bytes.
                     "plan_cache": _ProcessingPlanCache(
                         self.cache_repo, self.db, url, source_type, session_lock
                     ),
@@ -666,11 +763,15 @@ class TaskService(ClipEditingMixin):
                 max_video_duration=max_video_duration,
                 download_quality=download_quality,
                 cached_transcript=cached_transcript,
+                timed_transcript_loader=load_timed_transcript,
+                timed_transcript_callback=save_timed_transcript,
+                source_identity_changed=source_identity_changed,
                 cached_analysis_json=cached_analysis_json,
                 progress_callback=update_progress,
                 should_cancel=should_cancel,
                 performance_context=performance_context,
                 clip_length=clip_length,
+                clip_profile=clip_profile,
                 checkpoint=checkpoint,
                 checkpoint_callback=save_checkpoint,
                 **workflow_kwargs,
@@ -943,7 +1044,7 @@ class TaskService(ClipEditingMixin):
             )
             if completed is False:
                 raise TaskCancelled()
-
+            completion_committed = True
             if progress_callback:
                 await progress_callback(100, "Complete!", "completed")
 
@@ -995,6 +1096,17 @@ class TaskService(ClipEditingMixin):
             }
 
         except Exception as e:
+            if completion_committed:
+                # A post-commit side effect must never discard published clips.
+                logger.exception("Post-completion side effect failed for task %s", task_id)
+                await self.db.rollback()
+                return {
+                    "task_id": task_id,
+                    "clips_count": len(clip_ids),
+                    "segments": result["segments"],
+                    "summary": result.get("summary"),
+                    "key_topics": result.get("key_topics"),
+                }
             logger.error(f"Error processing task {task_id}: {e}")
             # Clear failed writes before recording the terminal error state.
             await self.db.rollback()

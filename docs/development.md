@@ -249,14 +249,14 @@ cd frontend && pnpm run test:e2e
 ### Local Test Environment
 
 - Start PostgreSQL and Redis locally before running integration or e2e flows.
-- `docker-compose up -d postgres redis` is enough for backend and frontend test runs.
-- `docker-compose up -d` is the simplest full-stack option when you also want manual smoke testing.
+- Use a dedicated disposable PostgreSQL database and Redis instance for tests. Do not point tests at the database or queue used by a running SupoClip installation: test and browser flows create and modify data.
+- Backend integration fixtures require `TEST_DATABASE_URL` explicitly; they do not fall back to `DATABASE_URL`. The example below assumes a separately provisioned test database.
 
 Useful backend test env vars:
 
 ```bash
-DATABASE_URL=postgresql+asyncpg://localhost:5432/supoclip
-TEST_DATABASE_URL=postgresql+asyncpg://localhost:5432/supoclip
+TEST_DATABASE_URL=postgresql+asyncpg://localhost:5432/supoclip_test
+TEST_FRONTEND_DATABASE_URL=postgresql://localhost:5432/supoclip_test
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
 BACKEND_AUTH_SECRET=supoclip_test_secret
