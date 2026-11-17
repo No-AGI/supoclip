@@ -6,6 +6,8 @@ Add a line here when a pull request changes something a user can see. Use **New*
 
 ## 2026-11-17
 
+- **Improved:** A video that speaks two languages — for example Russian commentary over English game lines — can now be transcribed in both: name the languages in `TRANSCRIPTION_CODE_SWITCHING_LANGUAGES` and AssemblyAI keeps both instead of forcing one detected language across the whole file. ([#1](https://github.com/No-AGI/supoclip/pull/1))
+- **Fixed:** When a video has almost no speech, the task log now says how much of it was transcribed and where the speech actually is, instead of silently producing a starter clip without captions. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 - **Fixed:** Model fallback tries another key when Google rejects a key, handles exhausted credits, and keeps free OpenRouter models on free fallbacks. The landing page calendar now displays consistent times. ([#1](https://github.com/No-AGI/supoclip/pull/1))
 
 ## 2026-11-13

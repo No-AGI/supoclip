@@ -1379,8 +1379,14 @@ class VideoService:
             segments_json = segments_json[: min(24, max(1, clip_limit) * 2)]
 
         if not segments_json:
+            # Say why: a short transcript is the difference between "the model
+            # disliked every moment" and "this video has almost no speech".
             logger.warning(
-                "AI analysis selected no segments; using fallback clip window"
+                "AI analysis selected no segments; using fallback clip window "
+                "(transcript %d chars, %d words, video %.0fs)",
+                len(transcript or ""),
+                len((transcript or "").split()),
+                file_duration or 0.0,
             )
             segments_json = [
                 VideoService._build_fallback_segment(

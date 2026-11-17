@@ -366,6 +366,58 @@ def get_video_transcript(
     return _get_transcript_with_assemblyai(video_path, speech_model, runtime_config)
 
 
+def _assemblyai_language_detection_options(runtime_config):
+    """Ask AssemblyAI to keep both languages of a bilingual track.
+
+    Single-language detection forces the whole file into one language, so a
+    Russian streamer talking over English game audio loses either half of the
+    speech. Code switching is only requested when the deployment names the
+    languages in ``TRANSCRIPTION_CODE_SWITCHING_LANGUAGES``; without that list
+    the request stays byte-identical to the single-language path.
+    """
+    languages = list(
+        getattr(runtime_config, "transcription_code_switching_languages", ()) or ()
+    )
+    if not languages:
+        return None
+    return aai.LanguageDetectionOptions(
+        expected_languages=languages,
+        fallback_language=languages[0],
+        code_switching=True,
+        on_low_language_confidence="fallback",
+    )
+
+
+def _transcript_coverage_warning(
+    duration_seconds: Optional[float], characters: int, words: list
+) -> Optional[str]:
+    """Describe a transcript too thin for the audio, or None when plausible.
+
+    A paid job that returns a few hundred characters for a long video is not a
+    working transcript; without this check the pipeline silently exports an
+    uncaptioned starter clip and the cause stays invisible.
+    """
+    if not duration_seconds or duration_seconds < 120 or characters <= 0:
+        return None
+    coverage = characters / float(duration_seconds)
+    if coverage >= 1.0:
+        return None
+    speech_span = "no word timings"
+    if words:
+        try:
+            start = float(words[0]["start"]) / 1000.0
+            end = float(words[-1]["end"]) / 1000.0
+            speech_span = f"speech between {start:.0f}s and {end:.0f}s"
+        except (KeyError, TypeError, ValueError, IndexError):
+            speech_span = "unreadable word timings"
+    return (
+        f"Transcript covers {characters} chars for {duration_seconds:.0f}s of audio "
+        f"({coverage:.2f} chars/s, {len(words)} words, {speech_span}). "
+        "Moment detection needs real speech; check the audio track, the language "
+        "settings, or expect a starter clip without captions."
+    )
+
+
 def _get_transcript_with_assemblyai(
     video_path: Path, speech_model: str, runtime_config
 ) -> str:
@@ -393,6 +445,9 @@ def _get_transcript_with_assemblyai(
         speech_models=speech_models_value,
         language_code=language or None,
         language_detection=None if language else True,
+        language_detection_options=(
+            None if language else _assemblyai_language_detection_options(runtime_config)
+        ),
     )
 
     try:
@@ -420,6 +475,22 @@ def _get_transcript_with_assemblyai(
             response.get("language_code") or language or "unknown",
             response.get("language_confidence"),
         )
+        code_switching_languages = (
+            (response.get("language_detection_results") or {}).get(
+                "code_switching_languages"
+            )
+            or []
+        )
+        if code_switching_languages:
+            logger.info(
+                "AssemblyAI code switching languages: %s",
+                ", ".join(
+                    f"{entry.get('language_code')}"
+                    f"@{round(float(entry.get('confidence') or 0), 2)}"
+                    for entry in code_switching_languages
+                    if isinstance(entry, dict)
+                ),
+            )
 
         formatted_lines = format_transcript_for_analysis(transcript)
         cache_transcript_data(video_path, transcript)
@@ -428,6 +499,13 @@ def _get_transcript_with_assemblyai(
         logger.info(
             f"Transcript formatted: {len(formatted_lines)} segments, {len(result)} chars"
         )
+        coverage_warning = _transcript_coverage_warning(
+            response.get("audio_duration") or getattr(transcript, "audio_duration", None),
+            len(result),
+            getattr(transcript, "words", None) or [],
+        )
+        if coverage_warning:
+            logger.warning(coverage_warning)
         return result
 
     except Exception as e:

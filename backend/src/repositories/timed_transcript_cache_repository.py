@@ -29,6 +29,17 @@ def timed_transcript_provenance(config: Any, processing_mode: str) -> dict[str, 
         "provider": provider,
         "model": model or "default",
         "language": getattr(config, "transcription_language", "") or "",
+        # Only present when code switching is on, so existing single-language
+        # caches and saved task progress keep their identity.
+        **(
+            {
+                "code_switching_languages": ",".join(
+                    getattr(config, "transcription_code_switching_languages", ()) or ()
+                )
+            }
+            if getattr(config, "transcription_code_switching_languages", ())
+            else {}
+        ),
     }
 
 

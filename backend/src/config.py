@@ -35,6 +35,12 @@ class Config:
         self.transcription_language = self._normalize_transcription_language(
             os.getenv("TRANSCRIPTION_LANGUAGE")
         )
+        # Languages heard in the audio, for example "ru,en" for a streamer who
+        # speaks Russian over English game lines. Naming them enables AssemblyAI
+        # code switching; an empty list keeps single-language detection.
+        self.transcription_code_switching_languages = self._normalize_language_list(
+            os.getenv("TRANSCRIPTION_CODE_SWITCHING_LANGUAGES", "")
+        )
         self.llm = self._get_runtime_setting("LLM") or self._infer_default_llm()
         # Models that are tried when the primary one is overloaded or its key
         # is refused. The order is the order they are tried in.
@@ -470,6 +476,23 @@ class Config:
     def _normalize_transcription_language(value: str | None) -> str:
         normalized = (value or "").strip().lower().replace("-", "_")
         return "" if normalized in ("", "auto") else normalized
+
+    @staticmethod
+    def _normalize_language_list(value: str | None) -> list[str]:
+        """Parse a comma-separated language list into unique base codes.
+
+        Redirects such as ``auto`` are dropped so an accidental value cannot
+        submit a language AssemblyAI rejects after the audio was uploaded.
+        """
+        languages: list[str] = []
+        for item in (value or "").split(","):
+            code = item.strip().lower().replace("-", "_").split("_", 1)[0]
+            if not code or code == "auto" or code in languages:
+                continue
+            if len(code) != 2 or not code.isalpha():
+                continue
+            languages.append(code)
+        return languages
 
     @staticmethod
     def _normalize_youtube_metadata_provider(value: str | None) -> str:
